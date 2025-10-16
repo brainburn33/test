@@ -53,7 +53,7 @@ jobs:
           [System.IO.File]::WriteAllText($path, $key,
           [System.Text.Encoding]::UTF8)
           Write-Host "Uploading file to Google Drive..."
-          rclone copy "./test-upload.txt" gdrive:/GitHub-Actions-Backup --progress
+          rclone copy "./test-upload.txt" gdrive:/GitHub-RDP --progress
           Write-Host "File uploaded successfully!"
 
       - name: Download back from Google Drive (check)
