@@ -1,96 +1,25 @@
-name: GitHub-RDP Google Drive Test & Auto-Restart
+name: Upload to MEGA
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-test:
+  upload:
     runs-on: windows-latest
-    timeout-minutes: 60
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install rclone
+      - name: Install MEGAcmd
         shell: powershell
         run: |
-          Write-Host "Installing rclone..."
-          Invoke-WebRequest https://downloads.rclone.org/rclone-current-windows-amd64.zip -OutFile rclone.zip
-          Expand-Archive rclone.zip -DestinationPath rclone
-          Copy-Item rclone\rclone-*\rclone.exe -Destination "C:\Windows\System32\rclone.exe" -Force
-          rclone version
+          Invoke-WebRequest https://mega.nz/MEGAcmdSetup64.exe -OutFile mega.exe
+          Start-Process mega.exe -ArgumentList "/S" -Wait
 
-      - name: Create Google Drive key from secret (UTF8 without BOM)
+      - name: Login to MEGA
         shell: powershell
         run: |
-          $key = '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
-          $path = "$env:USERPROFILE\gdrive-key.json"
-          
-          # Используем UTF8NoBOMEncoding для гарантии отсутствия BOM
-          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllText($path, $key, $utf8NoBom)
-          
-          Write-Host "Google Drive key file created without BOM at $path"
-          
-          # Проверка первых байтов файла
-          $bytes = [System.IO.File]::ReadAllBytes($path)
-          Write-Host "First 3 bytes: $($bytes[0..2] -join ', ')"
-          if ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-            Write-Host "WARNING: BOM detected!"
-          } else {
-            Write-Host "OK: No BOM detected"
-          }
+          & "C:\Program Files\MEGAcmd\mega-login.bat" "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
 
-      - name: Configure rclone with Google Drive
+      - name: Upload file
         shell: powershell
         run: |
-          Write-Host "Configuring rclone..."
-          mkdir "$env:USERPROFILE\.config\rclone" -Force
-          
-          $rcloneConfig = "[gdrive]`ntype = drive`nscope = drive.file`nservice_account_file = $env:USERPROFILE\gdrive-key.json"
-          
-          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          $configPath = "$env:USERPROFILE\.config\rclone\rclone.conf"
-          [System.IO.File]::WriteAllText($configPath, $rcloneConfig, $utf8NoBom)
-          
-          Write-Host "rclone configured successfully"
-          Write-Host "Config contents:"
-          Get-Content $configPath
-
-      - name: Create test file and upload to Google Drive
-        shell: powershell
-        run: |
-          $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-          $content = "GitHub Actions successfully uploaded this file at $timestamp"
-          $testFile = "test-upload.txt"
-          
-          Set-Content -Path $testFile -Value $content -Encoding UTF8
-          Write-Host "Test file created: $testFile"
-          
-          Write-Host "Uploading file to Google Drive..."
-          rclone copy "./$testFile" gdrive:/GitHub-RDP --progress -vv
-          Write-Host "File uploaded successfully!"
-
-      - name: Download back from Google Drive (check)
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path ./downloaded
-          rclone copy gdrive:/GitHub-RDP ./downloaded --progress
-          Write-Host "Downloaded files:"
-          Get-ChildItem ./downloaded -Recurse
-
-      - name: Restart Workflow via GitHub API
-        shell: powershell
-        run: |
-          $repo = "${{ github.repository }}"
-          $token = "${{ secrets.GITHUB_TOKEN }}"
-          $workflowFile = "123.yml"
-          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
-          Write-Host "Sending restart request to GitHub API..."
-          $body = '{"ref": "main"}'
-          Invoke-RestMethod -Uri $apiUrl -Method Post -Headers @{
-            Authorization = "token $token"
-            Accept = "application/vnd.github+json"
-          } -Body $body
-          Write-Host "Workflow restart request sent successfully."
+          "Test file" | Out-File test.txt
+          & "C:\Program Files\MEGAcmd\mega-put.bat" test.txt /GitHub-Actions/
