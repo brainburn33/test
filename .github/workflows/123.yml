@@ -98,7 +98,7 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Waiting 30 seconds before restart..."
-          Start-Sleep -Seconds 30
+          Start-Sleep -Seconds 10
 
       - name: Restart Workflow
         shell: powershell
