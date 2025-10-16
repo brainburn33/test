@@ -26,7 +26,8 @@ jobs:
         run: |
           $key = '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
           $path = "$env:USERPROFILE\gdrive-key.json"
-          Set-Content -Path $path -Value $key -Encoding utf8NoBOM
+          [System.IO.File]::WriteAllText($path, $key,
+          [System.Text.Enconding]::UTF8)
           Write-Host "Google Drive key file created at $path"
 
       - name: Configure rclone with Google Drive
