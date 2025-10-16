@@ -48,7 +48,12 @@ jobs:
         run: |
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           $content = "GitHub Actions successfully uploaded this file at $timestamp"
-          Set-Content -Path "./test-upload.txt" -Value $content -Encoding UTF8
+          $key = $key -replace "r", ""    # удаляем CR
+          $key = $key -replace "n", "`n"  # нормализуем LF
+
+          $sw = New-Object System.IO.StreamWriter($path, $false, [System.Text.Encoding]::UTF8)
+          $sw.Write($key)
+          $sw.Close()
           Write-Host "Uploading file to Google Drive..."
           rclone copy "./test-upload.txt" gdrive:/GitHub-RDP --progress
           Write-Host "File uploaded successfully!"
