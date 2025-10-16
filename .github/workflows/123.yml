@@ -141,13 +141,28 @@ jobs:
         env:
           STATIC_PASSWORD: ${{ secrets.RDP_PASSWORD }}
         run: |
+          # Получаем пароль из секрета
           $password = $env:STATIC_PASSWORD
+          
+          # Проверяем, задан ли пароль
           if ([string]::IsNullOrEmpty($password)) {
-              Write-Host "WARNING: RDP_PASSWORD secret not set, using default"
-              $password = "DefaultPass123!"
+              Write-Host "⚠️ WARNING: RDP_PASSWORD secret not set, generating secure default password"
+              # Генерируем надежный дефолтный пароль
+              $password = "RDP_" + (-join ((65..90) + (97..122) + (48..57) + (33,35,36,37,38,42,43,45,61) | Get-Random -Count 12 | ForEach-Object {[char]$_}))
+              Write-Host "Generated password: $password"
           }
+          
+          # Отключаем требования к сложности пароля (для локальных пользователей)
+          secedit /export /cfg C:\secpol.cfg
+          (Get-Content C:\secpol.cfg).replace("PasswordComplexity = 1", "PasswordComplexity = 0") | Out-File C:\secpol.cfg
+          secedit /configure /db C:\windows\security\local.sdb /cfg C:\secpol.cfg /areas SECURITYPOLICY
+          Remove-Item -Force C:\secpol.cfg -Confirm:$false
+          
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          
+          # Проверяем, существует ли пользователь
           $userExists = Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue
+          
           if ($userExists) {
               Set-LocalUser -Name "RDP" -Password $securePass
               Write-Host "✅ Updated password for existing RDP user"
@@ -157,11 +172,17 @@ jobs:
               Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
               Write-Host "✅ Created new RDP user"
           }
+          
+          # Сохраняем пароль в переменную окружения
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
+          
+          # Проверяем создание пользователя
           if (-not (Get-LocalUser -Name "RDP")) {
               Write-Error "User creation failed"
               exit 1
           }
+          
+          Write-Host "User RDP created/updated successfully"
 
       - name: Install Tailscale
         run: |
@@ -231,7 +252,7 @@ jobs:
           Write-Host "`n=== RDP ACCESS - Session #$counter ==="
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: RDP"
-          Write-Host "Password: $env:RDP_PASSWORD (static)"
+          Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host ""
           Write-Host "Auto-saved: Desktop, Documents, Downloads, AppData\Local\Roblox, C:\Bloxtrap"
           Write-Host "Auto-save every 30 minutes"
