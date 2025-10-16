@@ -10,7 +10,7 @@ permissions:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
 
     steps:
       - name: Checkout repository
@@ -259,7 +259,7 @@ jobs:
           Write-Host "========================================`n"
           
           $lastSave = Get-Date
-          $saveInterval = 30
+          $saveInterval = 1
           
           while ($true) {
               $now = Get-Date
