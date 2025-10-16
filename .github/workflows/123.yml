@@ -15,7 +15,7 @@ jobs:
       - name: Install rclone
         shell: powershell
         run: |
-          Write-Host "📦 Installing rclone..."
+          Write-Host "Installing rclone..."
           Invoke-WebRequest https://downloads.rclone.org/rclone-current-windows-amd64.zip -OutFile rclone.zip
           Expand-Archive rclone.zip -DestinationPath rclone
           Copy-Item rclone\rclone-*\rclone.exe -Destination "C:\Windows\System32\rclone.exe" -Force
