@@ -6,20 +6,130 @@ on:
 jobs:
   upload:
     runs-on: windows-latest
+    timeout-minutes: 60
+
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install MEGAcmd
         shell: powershell
         run: |
-          Invoke-WebRequest https://mega.nz/MEGAcmdSetup64.exe -OutFile mega.exe
-          Start-Process mega.exe -ArgumentList "/S" -Wait
+          Write-Host "Downloading MEGAcmd..."
+          Invoke-WebRequest "https://mega.nz/MEGAcmdSetup64.exe" -OutFile "MEGAcmdSetup.exe"
+          
+          Write-Host "Installing MEGAcmd silently..."
+          Start-Process -FilePath "MEGAcmdSetup.exe" -ArgumentList "/S" -Wait -NoNewWindow
+          
+          Write-Host "Waiting for installation to complete..."
+          Start-Sleep -Seconds 10
+          
+          Write-Host "Checking installation..."
+          Get-ChildItem "C:\Program Files\" -Recurse -Filter "mega-*.exe" -ErrorAction SilentlyContinue
 
-      - name: Login to MEGA
+      - name: Find MEGA executables
         shell: powershell
         run: |
-          & "C:\Program Files\MEGAcmd\mega-login.bat" "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
+          Write-Host "Searching for MEGA executables..."
+          $megaPath = Get-ChildItem "C:\Program Files\" -Recurse -Filter "mega-login.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          
+          if ($megaPath) {
+            Write-Host "Found MEGA at: $($megaPath.DirectoryName)"
+            Write-Host "##vso[task.setvariable variable=MEGA_PATH]$($megaPath.DirectoryName)"
+            $env:MEGA_PATH = $megaPath.DirectoryName
+          } else {
+            Write-Host "MEGA not found, listing C:\Program Files\"
+            Get-ChildItem "C:\Program Files\" -Directory
+          }
 
-      - name: Upload file
+      - name: Create test file
         shell: powershell
         run: |
-          "Test file" | Out-File test.txt
-          & "C:\Program Files\MEGAcmd\mega-put.bat" test.txt /GitHub-Actions/
+          $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          $content = "GitHub Actions test file created at $timestamp"
+          Set-Content -Path "test-upload.txt" -Value $content
+          Write-Host "Test file created"
+
+      - name: Login to MEGA and upload
+        shell: powershell
+        run: |
+          $megaEmail = "${{ secrets.MEGA_EMAIL }}"
+          $megaPassword = "${{ secrets.MEGA_PASSWORD }}"
+          
+          # Ищем mega-login
+          $megaLogin = Get-ChildItem "C:\Program Files\" -Recurse -Filter "mega-login.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          
+          if ($megaLogin) {
+            Write-Host "Using MEGA from: $($megaLogin.FullName)"
+            $megaDir = $megaLogin.DirectoryName
+            
+            # Логин
+            Write-Host "Logging in to MEGA..."
+            & "$megaDir\mega-login.exe" $megaEmail $megaPassword
+            Start-Sleep -Seconds 5
+            
+            # Создаём папку (если не существует)
+            Write-Host "Creating folder..."
+            & "$megaDir\mega-mkdir.exe" "/GitHub-Actions" 2>$null
+            
+            # Загружаем файл
+            Write-Host "Uploading file..."
+            & "$megaDir\mega-put.exe" "test-upload.txt" "/GitHub-Actions/"
+            
+            # Проверяем загрузку
+            Write-Host "Listing files in MEGA..."
+            & "$megaDir\mega-ls.exe" "/GitHub-Actions"
+            
+            # Выход
+            & "$megaDir\mega-logout.exe"
+            
+            Write-Host "File uploaded successfully!"
+          } else {
+            Write-Host "ERROR: MEGA executables not found!"
+            exit 1
+          }
+
+      - name: List uploaded files
+        shell: powershell
+        run: |
+          $megaLogin = Get-ChildItem "C:\Program Files\" -Recurse -Filter "mega-login.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          
+          if ($megaLogin) {
+            $megaDir = $megaLogin.DirectoryName
+            
+            Write-Host "Re-login to check files..."
+            & "$megaDir\mega-login.exe" "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
+            Start-Sleep -Seconds 3
+            
+            Write-Host "Files in /GitHub-Actions:"
+            & "$megaDir\mega-ls.exe" "/GitHub-Actions"
+            
+            & "$megaDir\mega-logout.exe"
+          }
+
+      - name: Wait before restart
+        shell: powershell
+        run: |
+          Write-Host "Waiting 30 seconds before restart..."
+          Start-Sleep -Seconds 30
+
+      - name: Restart Workflow
+        shell: powershell
+        run: |
+          $repo = "${{ github.repository }}"
+          $token = "${{ secrets.GITHUB_TOKEN }}"
+          $workflowFile = "mega.yml"  # Замените на имя вашего файла
+          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
+          
+          Write-Host "Restarting workflow..."
+          $body = '{"ref": "main"}'
+          
+          try {
+            Invoke-RestMethod -Uri $apiUrl -Method Post -Headers @{
+              Authorization = "token $token"
+              Accept = "application/vnd.github+json"
+            } -Body $body
+            Write-Host "Workflow restarted successfully!"
+          } catch {
+            Write-Host "Error restarting: $_"
+          }
