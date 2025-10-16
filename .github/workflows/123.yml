@@ -3,6 +3,10 @@ name: GitHub-RDP Auto-Restart with Artifacts
 on:
   workflow_dispatch:
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   rdp-test:
     runs-on: windows-latest
@@ -21,8 +25,11 @@ jobs:
           # Создаем тестовый файл с временной меткой
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           $runNumber = "${{ github.run_number }}"
+          $runId = "${{ github.run_id }}"
+          
           $content = @"
           Run Number: $runNumber
+          Run ID: $runId
           Timestamp: $timestamp
           Repository: ${{ github.repository }}
           Workflow: ${{ github.workflow }}
@@ -31,46 +38,56 @@ jobs:
           Set-Content -Path "./data/test-file.txt" -Value $content
           
           # Создаем файл с историей запусков
-          $historyFile = "./data/history.txt"
-          if (Test-Path $historyFile) {
-            Add-Content -Path $historyFile -Value "Run $runNumber at $timestamp"
-          } else {
-            Set-Content -Path $historyFile -Value "Run $runNumber at $timestamp"
-          }
+          $historyEntry = "Run #$runNumber (ID: $runId) at $timestamp"
+          Set-Content -Path "./data/current-run.txt" -Value $historyEntry
           
           Write-Host "Created test data:"
           Get-ChildItem ./data
 
-      - name: Download previous artifact (if exists)
+      - name: Try to download previous artifact
+        id: download
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           name: persistent-data
           path: ./previous-data
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
 
-      - name: Merge with previous data
+      - name: Check and merge with previous data
         shell: powershell
         run: |
           if (Test-Path "./previous-data") {
-            Write-Host "Found previous data:"
+            Write-Host "✅ Found previous data:"
             Get-ChildItem ./previous-data -Recurse
             
-            # Копируем историю из предыдущего запуска
+            # Создаем или дополняем файл истории
+            $historyFile = "./data/history.txt"
+            
             if (Test-Path "./previous-data/history.txt") {
-              $previousHistory = Get-Content "./previous-data/history.txt"
-              $currentHistory = Get-Content "./data/history.txt"
-              $mergedHistory = $previousHistory + $currentHistory
-              Set-Content -Path "./data/history.txt" -Value $mergedHistory
-              Write-Host "Merged history file"
+              $previousHistory = Get-Content "./previous-data/history.txt" -Raw
+              Set-Content -Path $historyFile -Value $previousHistory
             }
             
-            # Копируем другие файлы если нужно
-            Copy-Item ./previous-data/* ./data/ -Recurse -Force -ErrorAction SilentlyContinue
+            # Добавляем текущий запуск в историю
+            if (Test-Path "./data/current-run.txt") {
+              $currentRun = Get-Content "./data/current-run.txt"
+              Add-Content -Path $historyFile -Value $currentRun
+            }
+            
+            Write-Host "Merged history entries"
           } else {
-            Write-Host "No previous data found, starting fresh"
+            Write-Host "⚠️ No previous data found (this is normal for first run)"
+            
+            # Создаем начальную историю
+            if (Test-Path "./data/current-run.txt") {
+              $currentRun = Get-Content "./data/current-run.txt"
+              Set-Content -Path "./data/history.txt" -Value $currentRun
+            }
           }
           
-          Write-Host "Current data directory:"
+          Write-Host "`nCurrent data directory:"
           Get-ChildItem ./data -Recurse
 
       - name: Upload artifact
@@ -78,19 +95,81 @@ jobs:
         with:
           name: persistent-data
           path: ./data/
-          retention-days: 7  # Хранить артефакты 7 дней
-          overwrite: true   # Перезаписывать существующие артефакты
+          retention-days: 7
+          overwrite: true
 
       - name: Display data info
         shell: powershell
         run: |
           Write-Host "=== Current Session Data ==="
-          Get-Content "./data/test-file.txt"
+          if (Test-Path "./data/test-file.txt") {
+            Get-Content "./data/test-file.txt"
+          }
           
-          Write-Host "`n=== History ==="
+          Write-Host "`n=== Full History ==="
           if (Test-Path "./data/history.txt") {
             Get-Content "./data/history.txt"
+          } else {
+            Write-Host "No history yet"
           }
           
           Write-Host "`n=== Files in data folder ==="
-          Get-ChildItem ./data -Recurse | Format-Table 
+          Get-ChildItem ./data -Recurse | Format-Table Name, Length, LastWriteTime
+
+      - name: Wait before restart
+        shell: powershell
+        run: |
+          Write-Host "⏳ Waiting 10 seconds before restart..."
+          Start-Sleep -Seconds 10
+
+      - name: Restart Workflow via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: powershell
+        run: |
+          $repo = "${{ github.repository }}"
+          $workflow_id = "${{ github.workflow }}"  # Используем имя workflow, не путь к файлу
+          
+          Write-Host "Repository: $repo"
+          Write-Host "Workflow: $workflow_id"
+          Write-Host "Current ref: ${{ github.ref_name }}"
+          
+          # Формируем URL для API
+          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows"
+          
+          # Сначала получаем ID workflow
+          Write-Host "`nGetting workflow ID..."
+          $headers = @{
+            "Authorization" = "Bearer $env:GH_TOKEN"
+            "Accept" = "application/vnd.github+json"
+          }
+          
+          try {
+            $workflows = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers
+            $targetWorkflow = $workflows.workflows | Where-Object { $_.name -eq $workflow_id }
+            
+            if ($targetWorkflow) {
+              $workflowId = $targetWorkflow.id
+              Write-Host "Found workflow with ID: $workflowId"
+              
+              # Теперь запускаем workflow
+              $dispatchUrl = "$apiUrl/$workflowId/dispatches"
+              Write-Host "Dispatch URL: $dispatchUrl"
+              
+              $body = @{
+                ref = "${{ github.ref_name }}"
+              } | ConvertTo-Json
+              
+              Write-Host "`nSending restart request..."
+              $response = Invoke-RestMethod -Uri $dispatchUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
+              Write-Host "✅ Workflow restart request sent successfully!"
+            } else {
+              Write-Host "❌ Workflow not found"
+            }
+          } catch {
+            Write-Host "❌ Failed to restart workflow"
+            Write-Host "Error: $_"
+            if ($_.Exception.Response) {
+              Write-Host "Status: $($_.Exception.Response.StatusCode.value__)"
+            }
+          }
