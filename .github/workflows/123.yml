@@ -1,12 +1,12 @@
-name: Test Google Drive & Auto-Restart (Secure)
+name: GitHub-RDP Google Drive Test & Auto-Restart
 
 on:
   workflow_dispatch:
 
 jobs:
-  test-rclone:
+  rdp-test:
     runs-on: windows-latest
-    timeout-minutes: 15  # можно увеличить для длительных задач
+    timeout-minutes: 60  # можно увеличить при необходимости
 
     steps:
       - name: Checkout repository
@@ -21,14 +21,13 @@ jobs:
           Copy-Item rclone\rclone-*\rclone.exe -Destination "C:\Windows\System32\rclone.exe" -Force
           rclone version
 
-      - name: Create Google Drive key from secret
+      - name: Create Google Drive key from secret (UTF8 without BOM)
         shell: powershell
         run: |
           $key = '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
           $path = "$env:USERPROFILE\gdrive-key.json"
-          [System.IO.File]::WriteAllText($path, $key,
-          [System.Text.Encoding]::UTF8)
-          Write-Host "Google Drive key file created at $path"
+          [System.IO.File]::WriteAllText($path, $key, [System.Text.Encoding]::UTF8)
+          Write-Host "Google Drive key file created without BOM at $path"
 
       - name: Configure rclone with Google Drive
         shell: powershell
@@ -36,11 +35,11 @@ jobs:
           Write-Host "Configuring rclone..."
           mkdir "$env:USERPROFILE\.config\rclone" -Force
           $rcloneConfig = @"
-          [gdrive]
-          type = drive
-          scope = drive.file
-          service_account_file = $env:USERPROFILE\gdrive-key.json
-          "@
+[gdrive]
+type = drive
+scope = drive.file
+service_account_file = $env:USERPROFILE\gdrive-key.json
+"@
           Set-Content -Path "$env:USERPROFILE\.config\rclone\rclone.conf" -Value $rcloneConfig -Encoding UTF8
           Write-Host "rclone configured successfully"
 
@@ -49,9 +48,7 @@ jobs:
         run: |
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           $content = "GitHub Actions successfully uploaded this file at $timestamp"
-          $path = "$env:USERPROFILE\gdrive-key.json"
-          [System.IO.File]::WriteAllText($path, $key,
-          [System.Text.Encoding]::UTF8)
+          Set-Content -Path "./test-upload.txt" -Value $content -Encoding UTF8
           Write-Host "Uploading file to Google Drive..."
           rclone copy "./test-upload.txt" gdrive:/GitHub-RDP --progress
           Write-Host "File uploaded successfully!"
@@ -60,7 +57,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path ./downloaded
-          rclone copy gdrive:/GitHub-Actions-Backup ./downloaded --progress
+          rclone copy gdrive:/GitHub-RDP ./downloaded --progress
           Write-Host "Downloaded files:"
           Get-ChildItem ./downloaded -Recurse
 
@@ -69,7 +66,7 @@ jobs:
         run: |
           $repo = "${{ github.repository }}"
           $token = "${{ secrets.GITHUB_TOKEN }}"
-          $workflowFile = "test-rclone-restart-secure.yml"  # имя этого workflow
+          $workflowFile = "github-rdp-test.yml"
           $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
           Write-Host "Sending restart request to GitHub API..."
           $body = '{"ref": "main"}'
