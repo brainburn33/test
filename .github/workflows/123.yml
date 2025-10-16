@@ -72,7 +72,7 @@ jobs:
         run: |
           $repo = "${{ github.repository }}"
           $token = "${{ secrets.GITHUB_TOKEN }}"
-          $workflowFile = "github-rdp-test.yml"
+          $workflowFile = "123.yml"
           $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
           Write-Host "Sending restart request to GitHub API..."
           $body = '{"ref": "main"}'
