@@ -16,6 +16,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Get artifacts from previous workflow runs
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Host "Looking for artifacts from previous runs..."
+          
+          # Получаем список предыдущих запусков
+          $repo = "${{ github.repository }}"
+          $workflow_id = "${{ github.workflow }}"
+          
+          # Используем gh CLI для получения артефактов
+          $artifacts = gh api "repos/$repo/actions/artifacts" --jq '.artifacts[] | select(.name=="persistent-data") | select(.expired==false)' | ConvertFrom-Json
+          
+          if ($artifacts) {
+            $latestArtifact = $artifacts | Select-Object -First 1
+            Write-Host "Found artifact: $($latestArtifact.name) from run $($latestArtifact.workflow_run.id)"
+            
+            # Скачиваем артефакт
+            New-Item -ItemType Directory -Force -Path ./previous-data
+            gh api "repos/$repo/actions/artifacts/$($latestArtifact.id)/zip" > artifact.zip
+            Expand-Archive -Path artifact.zip -DestinationPath ./previous-data -Force
+            Remove-Item artifact.zip
+            
+            Write-Host "Downloaded previous data:"
+            Get-ChildItem ./previous-data -Recurse
+          } else {
+            Write-Host "No previous artifacts found (first run)"
+          }
+
       - name: Create test data
         shell: powershell
         run: |
@@ -37,58 +67,26 @@ jobs:
           
           Set-Content -Path "./data/test-file.txt" -Value $content
           
-          # Создаем файл с историей запусков
-          $historyEntry = "Run #$runNumber (ID: $runId) at $timestamp"
-          Set-Content -Path "./data/current-run.txt" -Value $historyEntry
+          # Счетчик запусков
+          $counter = 1
+          if (Test-Path "./previous-data/counter.txt") {
+            $counter = [int](Get-Content "./previous-data/counter.txt") + 1
+          }
+          Set-Content -Path "./data/counter.txt" -Value $counter
           
-          Write-Host "Created test data:"
-          Get-ChildItem ./data
-
-      - name: Try to download previous artifact
-        id: download
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: persistent-data
-          path: ./previous-data
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.run_id }}
-
-      - name: Check and merge with previous data
-        shell: powershell
-        run: |
-          if (Test-Path "./previous-data") {
-            Write-Host "✅ Found previous data:"
-            Get-ChildItem ./previous-data -Recurse
-            
-            # Создаем или дополняем файл истории
-            $historyFile = "./data/history.txt"
-            
-            if (Test-Path "./previous-data/history.txt") {
-              $previousHistory = Get-Content "./previous-data/history.txt" -Raw
-              Set-Content -Path $historyFile -Value $previousHistory
-            }
-            
-            # Добавляем текущий запуск в историю
-            if (Test-Path "./data/current-run.txt") {
-              $currentRun = Get-Content "./data/current-run.txt"
-              Add-Content -Path $historyFile -Value $currentRun
-            }
-            
-            Write-Host "Merged history entries"
+          # История запусков
+          $historyEntry = "Run #$counter (ID: $runId) at $timestamp"
+          
+          if (Test-Path "./previous-data/history.txt") {
+            $previousHistory = Get-Content "./previous-data/history.txt" -Raw
+            Set-Content -Path "./data/history.txt" -Value "$previousHistory`n$historyEntry"
           } else {
-            Write-Host "⚠️ No previous data found (this is normal for first run)"
-            
-            # Создаем начальную историю
-            if (Test-Path "./data/current-run.txt") {
-              $currentRun = Get-Content "./data/current-run.txt"
-              Set-Content -Path "./data/history.txt" -Value $currentRun
-            }
+            Set-Content -Path "./data/history.txt" -Value $historyEntry
           }
           
-          Write-Host "`nCurrent data directory:"
-          Get-ChildItem ./data -Recurse
+          Write-Host "This is run number: $counter"
+          Write-Host "Created test data:"
+          Get-ChildItem ./data
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -96,7 +94,6 @@ jobs:
           name: persistent-data
           path: ./data/
           retention-days: 7
-          overwrite: true
 
       - name: Display data info
         shell: powershell
@@ -106,70 +103,61 @@ jobs:
             Get-Content "./data/test-file.txt"
           }
           
+          Write-Host "`n=== Counter ==="
+          if (Test-Path "./data/counter.txt") {
+            $counter = Get-Content "./data/counter.txt"
+            Write-Host "Run counter: $counter"
+          }
+          
           Write-Host "`n=== Full History ==="
           if (Test-Path "./data/history.txt") {
             Get-Content "./data/history.txt"
-          } else {
-            Write-Host "No history yet"
           }
           
           Write-Host "`n=== Files in data folder ==="
           Get-ChildItem ./data -Recurse | Format-Table Name, Length, LastWriteTime
 
+      - name: Check if should restart
+        id: check_restart
+        shell: powershell
+        run: |
+          $maxRuns = 5  # Максимальное количество запусков
+          $counter = 1
+          
+          if (Test-Path "./data/counter.txt") {
+            $counter = [int](Get-Content "./data/counter.txt")
+          }
+          
+          Write-Host "Current run: $counter of $maxRuns"
+          
+          if ($counter -lt $maxRuns) {
+            Write-Host "Will restart workflow"
+            echo "should_restart=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Reached maximum runs, will not restart"
+            echo "should_restart=false" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Wait before restart
+        if: steps.check_restart.outputs.should_restart == 'true'
         shell: powershell
         run: |
           Write-Host "⏳ Waiting 10 seconds before restart..."
           Start-Sleep -Seconds 10
 
-      - name: Restart Workflow via GitHub API
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restart Workflow
+        if: steps.check_restart.outputs.should_restart == 'true'
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $repo = "${{ github.repository }}"
-          $workflow_id = "${{ github.workflow }}"  # Используем имя workflow, не путь к файлу
+          Write-Host "Triggering workflow restart..."
           
-          Write-Host "Repository: $repo"
-          Write-Host "Workflow: $workflow_id"
-          Write-Host "Current ref: ${{ github.ref_name }}"
+          # Используем gh CLI для запуска workflow
+          gh workflow run "${{ github.workflow }}" --ref "${{ github.ref_name }}"
           
-          # Формируем URL для API
-          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows"
-          
-          # Сначала получаем ID workflow
-          Write-Host "`nGetting workflow ID..."
-          $headers = @{
-            "Authorization" = "Bearer $env:GH_TOKEN"
-            "Accept" = "application/vnd.github+json"
-          }
-          
-          try {
-            $workflows = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers
-            $targetWorkflow = $workflows.workflows | Where-Object { $_.name -eq $workflow_id }
-            
-            if ($targetWorkflow) {
-              $workflowId = $targetWorkflow.id
-              Write-Host "Found workflow with ID: $workflowId"
-              
-              # Теперь запускаем workflow
-              $dispatchUrl = "$apiUrl/$workflowId/dispatches"
-              Write-Host "Dispatch URL: $dispatchUrl"
-              
-              $body = @{
-                ref = "${{ github.ref_name }}"
-              } | ConvertTo-Json
-              
-              Write-Host "`nSending restart request..."
-              $response = Invoke-RestMethod -Uri $dispatchUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
-              Write-Host "✅ Workflow restart request sent successfully!"
-            } else {
-              Write-Host "❌ Workflow not found"
-            }
-          } catch {
-            Write-Host "❌ Failed to restart workflow"
-            Write-Host "Error: $_"
-            if ($_.Exception.Response) {
-              Write-Host "Status: $($_.Exception.Response.StatusCode.value__)"
-            }
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Workflow restart triggered successfully!"
+          } else {
+            Write-Host "❌ Failed to trigger restart"
           }
