@@ -24,14 +24,12 @@ jobs:
       - name: Create Google Drive key from secret (UTF8 without BOM)
         shell: powershell
         run: |
-          $key = @'
-          ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-          '@
+          $key = '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
           $path = "$env:USERPROFILE\gdrive-key.json"
           
           # Используем UTF8NoBOMEncoding для гарантии отсутствия BOM
           $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllLines($path, $key, $utf8NoBom)
+          [System.IO.File]::WriteAllText($path, $key, $utf8NoBom)
           
           Write-Host "Google Drive key file created without BOM at $path"
           
@@ -50,12 +48,7 @@ jobs:
           Write-Host "Configuring rclone..."
           mkdir "$env:USERPROFILE\.config\rclone" -Force
           
-          $rcloneConfig = @"
-[gdrive]
-type = drive
-scope = drive.file
-service_account_file = $env:USERPROFILE\gdrive-key.json
-"@
+          $rcloneConfig = "[gdrive]`ntype = drive`nscope = drive.file`nservice_account_file = $env:USERPROFILE\gdrive-key.json"
           
           $utf8NoBom = New-Object System.Text.UTF8Encoding $false
           $configPath = "$env:USERPROFILE\.config\rclone\rclone.conf"
@@ -72,11 +65,9 @@ service_account_file = $env:USERPROFILE\gdrive-key.json
           $content = "GitHub Actions successfully uploaded this file at $timestamp"
           $testFile = "test-upload.txt"
           
-          # Создаем тестовый файл
           Set-Content -Path $testFile -Value $content -Encoding UTF8
           Write-Host "Test file created: $testFile"
           
-          # Загружаем на Google Drive
           Write-Host "Uploading file to Google Drive..."
           rclone copy "./$testFile" gdrive:/GitHub-RDP --progress -vv
           Write-Host "File uploaded successfully!"
