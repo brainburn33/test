@@ -10,7 +10,7 @@ permissions:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 360  # 6 часов
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository
@@ -41,44 +41,37 @@ jobs:
           Write-Host "Restoring cached data..."
           
           if (Test-Path "./cached-data") {
-            # Восстанавливаем Desktop
             if (Test-Path "./cached-data/Desktop") {
               Copy-Item -Path "./cached-data/Desktop/*" -Destination "$userProfile\Desktop\" -Recurse -Force -ErrorAction SilentlyContinue
               Write-Host "✅ Desktop restored"
             }
             
-            # Восстанавливаем Documents
             if (Test-Path "./cached-data/Documents") {
               Copy-Item -Path "./cached-data/Documents/*" -Destination "$userProfile\Documents\" -Recurse -Force -ErrorAction SilentlyContinue
               Write-Host "✅ Documents restored"
             }
             
-            # Восстанавливаем Downloads
             if (Test-Path "./cached-data/Downloads") {
               Copy-Item -Path "./cached-data/Downloads/*" -Destination "$userProfile\Downloads\" -Recurse -Force -ErrorAction SilentlyContinue
               Write-Host "✅ Downloads restored"
             }
             
-            # Восстанавливаем AppData (все содержимое)
             if (Test-Path "./cached-data/AppData/Local/Roblox") {
               New-Item -ItemType Directory -Force -Path "$userProfile\AppData\Local" -ErrorAction SilentlyContinue
               Copy-Item -Path "./cached-data/AppData/Local/Roblox" -Destination "$userProfile\AppData\Local\Roblox" -Recurse -Force -ErrorAction SilentlyContinue
               Write-Host "✅ AppData\Local\Roblox restored"
             }
             
-            # Восстанавливаем Bloxtrap из C:\
             if (Test-Path "./cached-data/Bloxtrap") {
-            Copy-Item -Path "./cached-data/Bloxtrap" -Destination "C:\Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "✅ Restored C:\Bloxtrap"
+              Copy-Item -Path "./cached-data/Bloxtrap" -Destination "C:\Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "✅ Restored C:\Bloxtrap"
             }
             
-            # Восстанавливаем список установленных программ
             if (Test-Path "./cached-data/installed-apps.txt") {
               Copy-Item "./cached-data/installed-apps.txt" -Destination "$userProfile\Desktop\previous-apps.txt"
               Write-Host "✅ Previous apps list restored to Desktop"
             }
             
-            # Счетчик сессий
             if (Test-Path "./cached-data/session-counter.txt") {
               $counter = [int](Get-Content "./cached-data/session-counter.txt") + 1
             } else {
@@ -96,72 +89,39 @@ jobs:
         shell: powershell
         run: |
           $userProfile = "C:\Users\runneradmin"
-          
-          # Создаем главную папку для постоянных данных
           New-Item -ItemType Directory -Force -Path "C:\PersistentData"
           
-          # Создаем README с инструкциями
-          $readme = @"
-==============================================
-PERSISTENT STORAGE GUIDE
-==============================================
-
-📁 WHAT GETS SAVED AUTOMATICALLY:
-
-1. Desktop files (C:\Users\runneradmin\Desktop)
-2. Documents (C:\Users\runneradmin\Documents)
-3. Downloads (C:\Users\runneradmin\Downloads)
-4. AppData folder (C:\Users\runneradmin\AppData)
-5. ALL folders in C:\ root (except system folders)
-
-💾 STORAGE LIMITS:
-
-- Maximum cache size: 10 GB
-- Cache expires after 7 days without use
-- Data saves every 30 minutes automatically
-- Final save when session ends
-
-⚠️ WHAT DOESN'T SAVE:
-
-- Installed programs (need reinstall each session)
-- System settings (Windows, Program Files)
-- Running processes
-- Temporary files
-
-💡 TIPS:
-
-- AppData contains app settings and local data
-- Create folders directly in C:\ for easy access
-- Keep installers in PersistentData or any C:\ folder
-- Use portable software when possible
-
-📋 CUSTOM FOLDERS:
-- Any folder you create in C:\ will be saved
-- AppData subfolders are preserved
-- Password is static (same every session)
-
-Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-
-==============================================
-"@
-          Set-Content -Path "C:\PersistentData\README.txt" -Value $readme
+          $readmeContent = "=" * 50
+          $readmeContent += "`nPERSISTENT STORAGE GUIDE`n"
+          $readmeContent += "=" * 50
+          $readmeContent += "`n`nWHAT GETS SAVED AUTOMATICALLY:`n"
+          $readmeContent += "- Desktop files`n"
+          $readmeContent += "- Documents`n"
+          $readmeContent += "- Downloads`n"
+          $readmeContent += "- AppData\Local\Roblox`n"
+          $readmeContent += "- C:\Bloxtrap`n"
+          $readmeContent += "`nSTORAGE LIMITS:`n"
+          $readmeContent += "- Maximum cache size: 10 GB`n"
+          $readmeContent += "- Cache expires after 7 days`n"
+          $readmeContent += "- Auto-save every 30 minutes`n"
+          $readmeContent += "`nSession started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n"
+          $readmeContent += "=" * 50
           
-          # Создаем ярлыки на рабочем столе
+          Set-Content -Path "C:\PersistentData\README.txt" -Value $readmeContent
+          
           $WshShell = New-Object -ComObject WScript.Shell
           
-          $Shortcut = $WshShell.CreateShortcut("$userProfile\Desktop\💾 Persistent Data.lnk")
+          $Shortcut = $WshShell.CreateShortcut("$userProfile\Desktop\Persistent Data.lnk")
           $Shortcut.TargetPath = "C:\PersistentData"
           $Shortcut.IconLocation = "shell32.dll,4"
           $Shortcut.Save()
           
-          # Ярлык на AppData
-          $Shortcut2 = $WshShell.CreateShortcut("$userProfile\Desktop\📂 AppData.lnk")
+          $Shortcut2 = $WshShell.CreateShortcut("$userProfile\Desktop\AppData.lnk")
           $Shortcut2.TargetPath = "$userProfile\AppData"
           $Shortcut2.IconLocation = "shell32.dll,3"
           $Shortcut2.Save()
           
-          # Ярлык на корень C:\
-          $Shortcut3 = $WshShell.CreateShortcut("$userProfile\Desktop\💿 C Drive.lnk")
+          $Shortcut3 = $WshShell.CreateShortcut("$userProfile\Desktop\C Drive.lnk")
           $Shortcut3.TargetPath = "C:\"
           $Shortcut3.IconLocation = "shell32.dll,8"
           $Shortcut3.Save()
@@ -170,37 +130,24 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 
       - name: Configure Core RDP Settings
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-                             -Name "fDenyTSConnections" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "UserAuthentication" -Value 0 -Force
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-                             -Name "SecurityLayer" -Value 0 -Force
-
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
-          netsh advfirewall firewall add rule name="RDP-Tailscale" `
-            dir=in action=allow protocol=TCP localport=3389
-
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
           Restart-Service -Name TermService -Force
 
       - name: Create RDP User with Static Password
         env:
           STATIC_PASSWORD: ${{ secrets.RDP_PASSWORD }}
         run: |
-          # Используем статичный пароль из secrets
           $password = $env:STATIC_PASSWORD
-          
-          # Если секрет не задан, используем дефолтный
           if ([string]::IsNullOrEmpty($password)) {
-              Write-Host "⚠️ WARNING: RDP_PASSWORD secret not set, using default"
+              Write-Host "WARNING: RDP_PASSWORD secret not set, using default"
               $password = "DefaultPass123!"
           }
-          
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          
-          # Проверяем, существует ли пользователь
           $userExists = Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue
-          
           if ($userExists) {
               Set-LocalUser -Name "RDP" -Password $securePass
               Write-Host "✅ Updated password for existing RDP user"
@@ -210,9 +157,7 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
               Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
               Write-Host "✅ Created new RDP user"
           }
-          
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
-          
           if (-not (Get-LocalUser -Name "RDP")) {
               Write-Error "User creation failed"
               exit 1
@@ -222,7 +167,6 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
         run: |
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           $installerPath = "$env:TEMP\tailscale.msi"
-          
           Invoke-WebRequest -Uri $tsUrl -OutFile $installerPath
           Start-Process msiexec.exe -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" -Wait
           Remove-Item $installerPath -Force
@@ -230,7 +174,6 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
       - name: Establish Tailscale Connection
         run: |
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
-          
           $tsIP = $null
           $retries = 0
           while (-not $tsIP -and $retries -lt 10) {
@@ -238,7 +181,6 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
               Start-Sleep -Seconds 5
               $retries++
           }
-          
           if (-not $tsIP) {
               Write-Error "Tailscale IP not assigned. Exiting."
               exit 1
@@ -248,7 +190,6 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Tailscale IP: $env:TAILSCALE_IP"
-          
           $testResult = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
           if (-not $testResult.TcpTestSucceeded) {
               Write-Error "TCP connection to RDP port 3389 failed"
@@ -263,33 +204,24 @@ Session started: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
           $counter = Get-Content "$userProfile\Desktop\session-counter.txt"
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           
-          $connectionInfo = @"
-==============================================
-RDP CONNECTION INFO - Session #$counter
-==============================================
-
-🌐 Address: $env:TAILSCALE_IP
-👤 Username: RDP
-🔑 Password: $env:RDP_PASSWORD
-
-📅 Started: $timestamp
-🔖 Run ID: ${{ github.run_id }}
-
-💾 PERSISTENT LOCATIONS:
-- Desktop
-- Documents  
-- Downloads
-- AppData (full folder)
-- Any folder in C:\ root
-
-🔐 PASSWORD INFO:
-- Static password (same every session)
-- Stored securely in GitHub Secrets
-
-==============================================
-"@
-          Set-Content -Path "$userProfile\Desktop\🔐 CONNECTION INFO.txt" -Value $connectionInfo
-          Write-Host $connectionInfo
+          $info = "=" * 50
+          $info += "`nRDP CONNECTION INFO - Session #$counter`n"
+          $info += "=" * 50
+          $info += "`nAddress: $env:TAILSCALE_IP`n"
+          $info += "Username: RDP`n"
+          $info += "Password: $env:RDP_PASSWORD`n"
+          $info += "`nStarted: $timestamp`n"
+          $info += "Run ID: ${{ github.run_id }}`n"
+          $info += "`nPERSISTENT LOCATIONS:`n"
+          $info += "- Desktop`n"
+          $info += "- Documents`n"
+          $info += "- Downloads`n"
+          $info += "- AppData\Local\Roblox`n"
+          $info += "- C:\Bloxtrap`n"
+          $info += "=" * 50
+          
+          Set-Content -Path "$userProfile\Desktop\CONNECTION-INFO.txt" -Value $info
+          Write-Host $info
 
       - name: Maintain Connection with Auto-Save
         run: |
@@ -301,22 +233,12 @@ RDP CONNECTION INFO - Session #$counter
           Write-Host "Username: RDP"
           Write-Host "Password: $env:RDP_PASSWORD (static)"
           Write-Host ""
-          Write-Host "📁 Auto-saved locations:"
-          Write-Host "   - Desktop, Documents, Downloads"
-          Write-Host "   - AppData (full folder)"
-          Write-Host "   - All custom folders in C:\"
-          Write-Host "💾 Auto-save every 30 minutes"
+          Write-Host "Auto-saved: Desktop, Documents, Downloads, AppData\Local\Roblox, C:\Bloxtrap"
+          Write-Host "Auto-save every 30 minutes"
           Write-Host "========================================`n"
           
           $lastSave = Get-Date
-          $saveInterval = 30  # минут
-          
-          # Список системных папок, которые не нужно сохранять
-          $excludeFolders = @(
-            "Windows", "Program Files", "Program Files (x86)", 
-            "PerfLogs", "System Volume Information", "`$Recycle.Bin",
-            "Recovery", "ProgramData", "Users", "pagefile.sys", "hiberfil.sys"
-          )
+          $saveInterval = 30
           
           while ($true) {
               $now = Get-Date
@@ -325,25 +247,74 @@ RDP CONNECTION INFO - Session #$counter
               Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Session #$counter Active | Next save in $([math]::Round($saveInterval - $elapsed)) min"
               
               if ($elapsed -ge $saveInterval) {
-                  Write-Host "`n💾 Auto-saving data..."
+                  Write-Host "`nAuto-saving data..."
                   
-                  # Создаем структуру для кеша
                   Remove-Item -Path "./cached-data" -Recurse -Force -ErrorAction SilentlyContinue
                   New-Item -ItemType Directory -Force -Path "./cached-data"
                   
-                  # Сохраняем Desktop
                   if (Test-Path "$userProfile\Desktop") {
                       Copy-Item -Path "$userProfile\Desktop" -Destination "./cached-data/Desktop" -Recurse -Force -ErrorAction SilentlyContinue
                       Write-Host "  ✅ Desktop saved"
                   }
                   
-                  # Сохраняем Documents
                   if (Test-Path "$userProfile\Documents") {
                       Copy-Item -Path "$userProfile\Documents" -Destination "./cached-data/Documents" -Recurse -Force -ErrorAction SilentlyContinue
                       Write-Host "  ✅ Documents saved"
                   }
                   
-                  # Сохраняем Downloads
                   if (Test-Path "$userProfile\Downloads") {
                       Copy-Item -Path "$userProfile\Downloads" -Destination "./cached-data/Downloads" -Recurse -Force -ErrorAction SilentlyContinue
-                
+                      Write-Host "  ✅ Downloads saved"
+                  }
+                  
+                  if (Test-Path "$userProfile\AppData\Local\Roblox") {
+                      New-Item -ItemType Directory -Force -Path "./cached-data/AppData/Local" -ErrorAction SilentlyContinue
+                      Copy-Item -Path "$userProfile\AppData\Local\Roblox" -Destination "./cached-data/AppData/Local/Roblox" -Recurse -Force -ErrorAction SilentlyContinue
+                      Write-Host "  ✅ AppData\Local\Roblox saved"
+                  }
+                  
+                  if (Test-Path "C:\Bloxtrap") {
+                      Copy-Item -Path "C:\Bloxtrap" -Destination "./cached-data/Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
+                      Write-Host "  ✅ C:\Bloxtrap saved"
+                  }
+                  
+                  Copy-Item "$userProfile\Desktop\session-counter.txt" -Destination "./cached-data/session-counter.txt" -Force -ErrorAction SilentlyContinue
+                  
+                  Get-WmiObject -Class Win32_Product | Select-Object Name, Version | Out-File -FilePath "./cached-data/installed-apps.txt"
+                  
+                  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                  Write-Host "  ✅ Data saved at $timestamp"
+                  
+                  $lastSave = Get-Date
+              }
+              
+              Start-Sleep -Seconds 60
+          }
+
+      - name: Final save before exit
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host "`nFinal save before exit..."
+          
+          $userProfile = "C:\Users\runneradmin"
+          
+          Remove-Item -Path "./cached-data" -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "./cached-data"
+          
+          Copy-Item -Path "$userProfile\Desktop" -Destination "./cached-data/Desktop" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$userProfile\Documents" -Destination "./cached-data/Documents" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$userProfile\Downloads" -Destination "./cached-data/Downloads" -Recurse -Force -ErrorAction SilentlyContinue
+          
+          if (Test-Path "$userProfile\AppData\Local\Roblox") {
+            New-Item -ItemType Directory -Force -Path "./cached-data/AppData/Local" -ErrorAction SilentlyContinue
+            Copy-Item -Path "$userProfile\AppData\Local\Roblox" -Destination "./cached-data/AppData/Local/Roblox" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          
+          if (Test-Path "C:\Bloxtrap") {
+            Copy-Item -Path "C:\Bloxtrap" -Destination "./cached-data/Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          
+          Copy-Item "$userProfile\Desktop\session-counter.txt" -Destination "./cached-data/session-counter.txt" -Force -ErrorAction SilentlyContinue
+          
+          Write-Host "✅ Final data saved!"
