@@ -49,7 +49,8 @@ jobs:
         run: |
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           $content = "GitHub Actions successfully uploaded this file at $timestamp"
-          Set-Content -Path "./test-upload.txt" -Value $content -Encoding UTF8
+          $path = "$env:USERPROFILE\gdrive-key.json"
+          [System.IO.File]::WriteAllText($path, $key,
           Write-Host "Uploading file to Google Drive..."
           rclone copy "./test-upload.txt" gdrive:/GitHub-Actions-Backup --progress
           Write-Host "File uploaded successfully!"
