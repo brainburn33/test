@@ -27,12 +27,12 @@ jobs:
           $key = '${{ secrets.GDRIVE_KEY_JSON }}'
           $path = "$env:USERPROFILE\gdrive-key.json"
           Set-Content -Path $path -Value $key -Encoding UTF8
-          Write-Host "✅ Google Drive key file created at $path"
+          Write-Host "Google Drive key file created at $path"
 
       - name: Configure rclone with Google Drive
         shell: powershell
         run: |
-          Write-Host "⚙️ Configuring rclone..."
+          Write-Host "Configuring rclone..."
           mkdir "$env:USERPROFILE\.config\rclone" -Force
           $rcloneConfig = @"
           [gdrive]
@@ -41,7 +41,7 @@ jobs:
           service_account_file = $env:USERPROFILE\gdrive-key.json
           "@
           Set-Content -Path "$env:USERPROFILE\.config\rclone\rclone.conf" -Value $rcloneConfig -Encoding UTF8
-          Write-Host "✅ rclone configured successfully"
+          Write-Host "rclone configured successfully"
 
       - name: Create test file and upload to Google Drive
         shell: powershell
@@ -49,16 +49,16 @@ jobs:
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           $content = "GitHub Actions successfully uploaded this file at $timestamp"
           Set-Content -Path "./test-upload.txt" -Value $content -Encoding UTF8
-          Write-Host "🚀 Uploading file to Google Drive..."
+          Write-Host "Uploading file to Google Drive..."
           rclone copy "./test-upload.txt" gdrive:/GitHub-Actions-Backup --progress
-          Write-Host "✅ File uploaded successfully!"
+          Write-Host "File uploaded successfully!"
 
       - name: Download back from Google Drive (check)
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path ./downloaded
           rclone copy gdrive:/GitHub-Actions-Backup ./downloaded --progress
-          Write-Host "📂 Downloaded files:"
+          Write-Host "Downloaded files:"
           Get-ChildItem ./downloaded -Recurse
 
       - name: Restart Workflow via GitHub API
@@ -68,10 +68,10 @@ jobs:
           $token = "${{ secrets.GITHUB_TOKEN }}"
           $workflowFile = "test-rclone-restart-secure.yml"  # имя этого workflow
           $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
-          Write-Host "🔁 Sending restart request to GitHub API..."
+          Write-Host "Sending restart request to GitHub API..."
           $body = '{"ref": "main"}'
           Invoke-RestMethod -Uri $apiUrl -Method Post -Headers @{
             Authorization = "token $token"
             Accept = "application/vnd.github+json"
           } -Body $body
-          Write-Host "✅ Workflow restart request sent successfully."
+          Write-Host "Workflow restart request sent successfully."
