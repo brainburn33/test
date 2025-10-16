@@ -1,4 +1,4 @@
-name: Test Google Drive & Auto-Restart (Secure
+name: Test Google Drive & Auto-Restart (Secure)
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ jobs:
       - name: Create Google Drive key from secret
         shell: powershell
         run: |
-          $key = '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
+          $key = '${{ secrets.GDRIVE_KEY_JSON }}'
           $path = "$env:USERPROFILE\gdrive-key.json"
           Set-Content -Path $path -Value $key -Encoding UTF8
           Write-Host "✅ Google Drive key file created at $path"
@@ -35,11 +35,11 @@ jobs:
           Write-Host "⚙️ Configuring rclone..."
           mkdir "$env:USERPROFILE\.config\rclone" -Force
           $rcloneConfig = @"
-[gdrive]
-type = drive
-scope = drive.file
-service_account_file = $env:USERPROFILE\gdrive-key.json
-"@
+          [gdrive]
+          type = drive
+          scope = drive.file
+          service_account_file = $env:USERPROFILE\gdrive-key.json
+          "@
           Set-Content -Path "$env:USERPROFILE\.config\rclone\rclone.conf" -Value $rcloneConfig -Encoding UTF8
           Write-Host "✅ rclone configured successfully"
 
