@@ -1,4 +1,4 @@
-name: GitHub-RDP Google Drive Test & Auto-Restart
+name: GitHub-RDP Auto-Restart with Artifacts
 
 on:
   workflow_dispatch:
@@ -12,93 +12,123 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install rclone
+      - name: Create test data
         shell: powershell
         run: |
-          Write-Host "Installing rclone..."
-          Invoke-WebRequest https://downloads.rclone.org/rclone-current-windows-amd64.zip -OutFile rclone.zip
-          Expand-Archive rclone.zip -DestinationPath rclone
-          Copy-Item rclone\rclone-*\rclone.exe -Destination "C:\Windows\System32\rclone.exe" -Force
-          rclone version
-
-      - name: Create Google Drive key from secret (UTF8 without BOM)
-        shell: powershell
-        run: |
-          $key = '${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}'
-          $path = "$env:USERPROFILE\gdrive-key.json"
+          # Создаем папку для данных
+          New-Item -ItemType Directory -Force -Path ./data
           
-          # Нормализуем переносы строк
-          $key = $key -replace "`r", ""
-          $key = $key -replace "\\n", "`n"
-          
-          # Записываем файл без BOM
-          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-          [System.IO.File]::WriteAllText($path, $key, $utf8NoBom)
-          Write-Host "Google Drive key file created without BOM at $path"
-
-      - name: Configure rclone with Google Drive
-        shell: powershell
-        run: |
-          Write-Host "Configuring rclone..."
-          mkdir "$env:USERPROFILE\.config\rclone" -Force
-          $rcloneConfig = @"
-          [gdrive]
-          type = drive
-          scope = drive.file
-          service_account_file = $env:USERPROFILE\gdrive-key.json
-          "@
-          Set-Content -Path "$env:USERPROFILE\.config\rclone\rclone.conf" -Value $rcloneConfig -Encoding UTF8
-          Write-Host "rclone configured successfully"
-
-      - name: Create test file and upload to Google Drive
-        shell: powershell
-        run: |
-          # Создаем тестовый файл
+          # Создаем тестовый файл с временной меткой
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-          $content = "GitHub Actions successfully uploaded this file at $timestamp"
-          $testFilePath = "./test-upload.txt"
+          $runNumber = "${{ github.run_number }}"
+          $content = @"
+          Run Number: $runNumber
+          Timestamp: $timestamp
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          "@
           
-          # Записываем содержимое в файл
-          Set-Content -Path $testFilePath -Value $content -Encoding UTF8
-          Write-Host "Test file created: $testFilePath"
-          Write-Host "Content: $content"
+          Set-Content -Path "./data/test-file.txt" -Value $content
           
-          # Загружаем файл в Google Drive
-          Write-Host "Uploading file to Google Drive..."
-          rclone copy $testFilePath gdrive:/GitHub-RDP --progress
-          Write-Host "File uploaded successfully!"
+          # Создаем файл с историей запусков
+          $historyFile = "./data/history.txt"
+          if (Test-Path $historyFile) {
+            Add-Content -Path $historyFile -Value "Run $runNumber at $timestamp"
+          } else {
+            Set-Content -Path $historyFile -Value "Run $runNumber at $timestamp"
+          }
+          
+          Write-Host "Created test data:"
+          Get-ChildItem ./data
 
-      - name: Download back from Google Drive (check)
+      - name: Download previous artifact (if exists)
+        uses: actions/download-artifact@v3
+        continue-on-error: true
+        with:
+          name: persistent-data
+          path: ./previous-data
+
+      - name: Merge with previous data
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path ./downloaded
-          rclone copy gdrive:/GitHub-RDP ./downloaded --progress
-          Write-Host "Downloaded files:"
-          Get-ChildItem ./downloaded -Recurse
-          
-          # Проверяем содержимое скачанного файла
-          if (Test-Path "./downloaded/test-upload.txt") {
-            $downloadedContent = Get-Content "./downloaded/test-upload.txt"
-            Write-Host "Downloaded file content: $downloadedContent"
+          if (Test-Path "./previous-data") {
+            Write-Host "Found previous data:"
+            Get-ChildItem ./previous-data -Recurse
+            
+            # Копируем историю из предыдущего запуска
+            if (Test-Path "./previous-data/history.txt") {
+              $previousHistory = Get-Content "./previous-data/history.txt"
+              $currentHistory = Get-Content "./data/history.txt"
+              $mergedHistory = $previousHistory + $currentHistory
+              Set-Content -Path "./data/history.txt" -Value $mergedHistory
+              Write-Host "Merged history file"
+            }
+            
+            # Копируем другие файлы если нужно
+            Copy-Item ./previous-data/* ./data/ -Recurse -Force -ErrorAction SilentlyContinue
+          } else {
+            Write-Host "No previous data found, starting fresh"
           }
+          
+          Write-Host "Current data directory:"
+          Get-ChildItem ./data -Recurse
 
-      - name: Restart Workflow via GitHub API
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: persistent-data
+          path: ./data/
+          retention-days: 7  # Хранить артефакты 7 дней
+
+      - name: Display data info
+        shell: powershell
+        run: |
+          Write-Host "=== Current Session Data ==="
+          Get-Content "./data/test-file.txt"
+          
+          Write-Host "`n=== History ==="
+          if (Test-Path "./data/history.txt") {
+            Get-Content "./data/history.txt"
+          }
+          
+          Write-Host "`n=== Files in data folder ==="
+          Get-ChildItem ./data -Recurse | Format-Table Name, Length, LastWriteTime
+
+      - name: Wait before restart
+        shell: powershell
+        run: |
+          Write-Host "Waiting 30 seconds before restart..."
+          Start-Sleep -Seconds 30
+
+      - name: Restart Workflow
         shell: powershell
         run: |
           $repo = "${{ github.repository }}"
           $token = "${{ secrets.GITHUB_TOKEN }}"
-          $workflowFile = "123.yml"
-          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
+          $workflowFile = "${{ github.workflow_file_path }}"
           
-          Write-Host "Sending restart request to GitHub API..."
-          $body = '{"ref": "main"}'
+          # Получаем имя файла workflow из пути
+          $workflowFileName = Split-Path $workflowFile -Leaf
+          
+          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFileName/dispatches"
+          
+          Write-Host "Attempting to restart workflow: $workflowFileName"
+          
+          $headers = @{
+            "Authorization" = "Bearer $token"
+            "Accept" = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          
+          $body = @{
+            ref = "${{ github.ref_name }}"
+          } | ConvertTo-Json
           
           try {
-            Invoke-RestMethod -Uri $apiUrl -Method Post -Headers @{
-              Authorization = "token $token"
-              Accept = "application/vnd.github+json"
-            } -Body $body -ContentType "application/json"
-            Write-Host "Workflow restart request sent successfully."
+            Invoke-RestMethod -Uri $apiUrl -Method Post -Headers $headers -Body $body -ContentType "application/json"
+            Write-Host "✅ Workflow restart request sent successfully"
           } catch {
-            Write-Host "Error restarting workflow: $_"
+            Write-Host "❌ Failed to restart workflow: $_"
+            Write-Host "Status Code: $($_.Exception.Response.StatusCode.value__)"
+            Write-Host "Error: $($_.ErrorDetails.Message)"
           }
