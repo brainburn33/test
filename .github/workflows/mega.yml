@@ -1,4 +1,4 @@
-name: Upload to MEGA (Python)
+name: MEGA Upload via API
 
 on:
   workflow_dispatch:
@@ -6,161 +6,26 @@ on:
 jobs:
   upload:
     runs-on: windows-latest
-    timeout-minutes: 60
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install mega.py library
+      - name: Create and upload file
         shell: powershell
         run: |
-          Write-Host "Installing mega.py..."
-          pip install mega.py
-          Write-Host "Installation complete!"
-
-      - name: Create test file
-        shell: powershell
-        run: |
+          # Создаём файл
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-          $content = "GitHub Actions test file created at $timestamp`nRun number: ${{ github.run_number }}"
-          Set-Content -Path "test-upload.txt" -Value $content
-          Write-Host "Test file created with timestamp: $timestamp"
-
-      - name: Upload to MEGA
-        shell: powershell
-        run: |
-          $pythonScript = @'
-          from mega import Mega
-          import sys
+          "Test file: $timestamp" | Out-File test.txt
           
-          email = sys.argv[1]
-          password = sys.argv[2]
-          filename = sys.argv[3]
+          # Конвертируем в base64
+          $bytes = [System.IO.File]::ReadAllBytes("test.txt")
+          $base64 = [Convert]::ToBase64String($bytes)
           
-          try:
-              print("Connecting to MEGA...")
-              mega = Mega()
-              
-              print(f"Logging in as {email}...")
-              m = mega.login(email, password)
-              
-              print("Login successful!")
-              
-              # Создаём папку (если не существует)
-              print("Creating/finding folder...")
-              try:
-                  folder = m.find('GitHub-Actions')
-                  if not folder:
-                      folder = m.create_folder('GitHub-Actions')
-                      print("Folder created!")
-                  else:
-                      folder = folder[0]
-                      print("Folder found!")
-              except:
-                  folder = m.create_folder('GitHub-Actions')
-                  print("Folder created!")
-              
-              # Загружаем файл
-              print(f"Uploading {filename}...")
-              uploaded_file = m.upload(filename, folder)
-              
-              print(f"✅ File uploaded successfully!")
-              print(f"File ID: {uploaded_file}")
-              
-              # Список файлов
-              print("\nFiles in GitHub-Actions folder:")
-              files = m.get_files_in_node(folder)
-              for file_id, file_data in files.items():
-                  if file_data['t'] == 0:  # Только файлы (не папки)
-                      print(f"  - {file_data['a']['n']}")
-              
-          except Exception as e:
-              print(f"❌ Error: {e}")
-              sys.exit(1)
-          '@
+          # MEGA API login
+          $email = "${{ secrets.MEGA_EMAIL }}"
+          $password = "${{ secrets.MEGA_PASSWORD }}"
           
-          Set-Content -Path "upload_mega.py" -Value $pythonScript
+          # Хеш пароля (упрощённый)
+          $passwordHash = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($password))
+          $passwordHashBase64 = [Convert]::ToBase64String($passwordHash)
           
-          Write-Host "Running upload script..."
-          python upload_mega.py "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}" "test-upload.txt"
-
-      - name: Download file back (verification)
-        shell: powershell
-        run: |
-          $pythonScript = @'
-          from mega import Mega
-          import sys
-          
-          email = sys.argv[1]
-          password = sys.argv[2]
-          
-          try:
-              print("Logging in to MEGA...")
-              mega = Mega()
-              m = mega.login(email, password)
-              
-              print("Finding folder...")
-              folder = m.find('GitHub-Actions')
-              
-              if folder:
-                  folder_node = folder[0]
-                  files = m.get_files_in_node(folder_node)
-                  
-                  print(f"\nFound {len(files)} items in GitHub-Actions folder:")
-                  for file_id, file_data in files.items():
-                      if file_data['t'] == 0:
-                          filename = file_data['a']['n']
-                          print(f"  📄 {filename}")
-                          
-                          # Скачиваем первый файл для проверки
-                          print(f"\nDownloading {filename} for verification...")
-                          m.download_url(file_id, dest_filename=f"downloaded_{filename}")
-                          print(f"✅ Downloaded successfully!")
-                          
-                          # Показываем содержимое
-                          with open(f"downloaded_{filename}", 'r') as f:
-                              content = f.read()
-                              print(f"\n📝 File content:\n{content}")
-                          break
-              else:
-                  print("Folder not found!")
-                  
-          except Exception as e:
-              print(f"Error: {e}")
-          '@
-          
-          Set-Content -Path "download_mega.py" -Value $pythonScript
-          python download_mega.py "${{ secrets.MEGA_EMAIL }}" "${{ secrets.MEGA_PASSWORD }}"
-
-      - name: Wait before restart
-        shell: powershell
-        run: |
-          Write-Host "Waiting 30 seconds before restart..."
-          Start-Sleep -Seconds 30
-
-      - name: Restart Workflow
-        shell: powershell
-        run: |
-          $repo = "${{ github.repository }}"
-          $token = "${{ secrets.GITHUB_TOKEN }}"
-          $workflowFile = "mega.yml"
-          $apiUrl = "https://api.github.com/repos/$repo/actions/workflows/$workflowFile/dispatches"
-          
-          Write-Host "Restarting workflow..."
-          $body = '{"ref": "main"}'
-          
-          try {
-            Invoke-RestMethod -Uri $apiUrl -Method Post -Headers @{
-              Authorization = "token $token"
-              Accept = "application/vnd.github+json"
-            } -Body $body
-            Write-Host "✅ Workflow restarted successfully!"
-          } catch {
-            Write-Host "⚠️ Error restarting: $_"
-          }
+          Write-Host "Email: $email"
+          Write-Host "File size: $($bytes.Length) bytes"
+          Write-Host "Ready to upload!"
