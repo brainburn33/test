@@ -1,0 +1,59 @@
+name: Google Drive + Auto Restart Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-drive:
+    runs-on: windows-latest
+    timeout-minutes: 15  # ограничим время теста, чтобы не висел
+
+    steps:
+      - name: Проверка репозитория
+        uses: actions/checkout@v4
+
+      - name: Установка rclone
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://downloads.rclone.org/rclone-current-windows-amd64.zip -OutFile rclone.zip
+          Expand-Archive rclone.zip -DestinationPath $env:TEMP\rclone
+          Copy-Item "$env:TEMP\rclone\rclone-*\rclone.exe" -Destination "$env:SystemRoot\System32\rclone.exe"
+
+      - name: Настройка Google Drive подключения
+        shell: powershell
+        run: |
+          echo "${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}" > service_account.json
+          rclone config create gdrive drive scope drive.service_account service_account_file service_account.json
+
+      - name: Тест загрузки файла в Google Drive
+        shell: powershell
+        run: |
+          $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          $content = "GitHub Actions успешно загрузил этот файл в $timestamp"
+          New-Item -Path "./test-upload.txt" -ItemType File -Value $content
+          rclone copy ./test-upload.txt gdrive:/GitHub-Actions-Backup --progress
+
+      - name: Тест скачивания из Google Drive
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path ./downloaded
+          rclone copy gdrive:/GitHub-Actions-Backup ./downloaded --progress
+          Write-Host "=== Содержимое скачанной папки ==="
+          Get-ChildItem ./downloaded -Recurse
+
+      - name: Автоперезапуск Workflow (через GitHub API)
+        if: always()
+        shell: powershell
+        run: |
+          $token = "${{ secrets.GITHUB_TOKEN }}"
+          $repo  = "${{ github.repository }}"
+          $workflow = "gdrive-test.yml"
+          $body = @{ ref = "${{ github.ref_name }}" } | ConvertTo-Json
+          
+          Write-Host "🔄 Отправляем запрос на повторный запуск workflow..."
+          Invoke-RestMethod -Method Post 
+            -Uri "https://api.github.com/repos/$repo/actions/workflows/$workflow/dispatches" 
+            -Headers @{ Authorization = "Bearer $token"; "Accept" = "application/vnd.github+json" } `
+            -Body $body
+
+          Write-Host "✅ Workflow успешно перезапущен!"
