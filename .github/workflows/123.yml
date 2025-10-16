@@ -10,7 +10,7 @@ permissions:
 jobs:
   secure-rdp:
     runs-on: windows-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
 
     steps:
       - name: Checkout repository
@@ -67,11 +67,6 @@ jobs:
               Write-Host "✅ Restored C:\Bloxtrap"
             }
             
-            if (Test-Path "./cached-data/installed-apps.txt") {
-              Copy-Item "./cached-data/installed-apps.txt" -Destination "$userProfile\Desktop\previous-apps.txt"
-              Write-Host "✅ Previous apps list restored to Desktop"
-            }
-            
             if (Test-Path "./cached-data/session-counter.txt") {
               $counter = [int](Get-Content "./cached-data/session-counter.txt") + 1
             } else {
@@ -121,8 +116,8 @@ jobs:
           $Shortcut2.IconLocation = "shell32.dll,3"
           $Shortcut2.Save()
           
-          $Shortcut3 = $WshShell.CreateShortcut("$userProfile\Desktop\C Drive.lnk")
-          $Shortcut3.TargetPath = "C:\"
+          $Shortcut3 = $WshShell.CreateShortcut("$userProfile\Desktop\Bloxtrap.lnk")
+          $Shortcut3.TargetPath = "C:\Bloxtrap"
           $Shortcut3.IconLocation = "shell32.dll,8"
           $Shortcut3.Save()
           
@@ -141,18 +136,14 @@ jobs:
         env:
           STATIC_PASSWORD: ${{ secrets.RDP_PASSWORD }}
         run: |
-          # Получаем пароль из секрета
           $password = $env:STATIC_PASSWORD
           
-          # Проверяем, задан ли пароль
           if ([string]::IsNullOrEmpty($password)) {
               Write-Host "⚠️ WARNING: RDP_PASSWORD secret not set, generating secure default password"
-              # Генерируем надежный дефолтный пароль
               $password = "RDP_" + (-join ((65..90) + (97..122) + (48..57) + (33,35,36,37,38,42,43,45,61) | Get-Random -Count 12 | ForEach-Object {[char]$_}))
               Write-Host "Generated password: $password"
           }
           
-          # Отключаем требования к сложности пароля (для локальных пользователей)
           secedit /export /cfg C:\secpol.cfg
           (Get-Content C:\secpol.cfg).replace("PasswordComplexity = 1", "PasswordComplexity = 0") | Out-File C:\secpol.cfg
           secedit /configure /db C:\windows\security\local.sdb /cfg C:\secpol.cfg /areas SECURITYPOLICY
@@ -160,7 +151,6 @@ jobs:
           
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           
-          # Проверяем, существует ли пользователь
           $userExists = Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue
           
           if ($userExists) {
@@ -173,10 +163,8 @@ jobs:
               Write-Host "✅ Created new RDP user"
           }
           
-          # Сохраняем пароль в переменную окружения
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
           
-          # Проверяем создание пользователя
           if (-not (Get-LocalUser -Name "RDP")) {
               Write-Error "User creation failed"
               exit 1
@@ -239,6 +227,7 @@ jobs:
           $info += "- Downloads`n"
           $info += "- AppData\Local\Roblox`n"
           $info += "- C:\Bloxtrap`n"
+          $info += "`nAuto-save interval: 30 minutes`n"
           $info += "=" * 50
           
           Set-Content -Path "$userProfile\Desktop\CONNECTION-INFO.txt" -Value $info
@@ -259,7 +248,7 @@ jobs:
           Write-Host "========================================`n"
           
           $lastSave = Get-Date
-          $saveInterval = 1
+          $saveInterval = 1  # минут
           
           while ($true) {
               $now = Get-Date
@@ -268,43 +257,70 @@ jobs:
               Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Session #$counter Active | Next save in $([math]::Round($saveInterval - $elapsed)) min"
               
               if ($elapsed -ge $saveInterval) {
-                  Write-Host "`nAuto-saving data..."
+                  Write-Host "`n💾 Auto-saving data..."
                   
-                  Remove-Item -Path "./cached-data" -Recurse -Force -ErrorAction SilentlyContinue
-                  New-Item -ItemType Directory -Force -Path "./cached-data"
-                  
-                  if (Test-Path "$userProfile\Desktop") {
-                      Copy-Item -Path "$userProfile\Desktop" -Destination "./cached-data/Desktop" -Recurse -Force -ErrorAction SilentlyContinue
-                      Write-Host "  ✅ Desktop saved"
+                  try {
+                      Remove-Item -Path "./cached-data" -Recurse -Force -ErrorAction SilentlyContinue
+                      New-Item -ItemType Directory -Force -Path "./cached-data" | Out-Null
+                      
+                      # Desktop
+                      if (Test-Path "$userProfile\Desktop") {
+                          $desktopSize = (Get-ChildItem "$userProfile\Desktop" -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB
+                          Write-Host "  📁 Desktop size: $([math]::Round($desktopSize, 2)) MB"
+                          Copy-Item -Path "$userProfile\Desktop" -Destination "./cached-data/Desktop" -Recurse -Force -ErrorAction SilentlyContinue
+                          Write-Host "  ✅ Desktop saved"
+                      }
+                      
+                      # Documents
+                      if (Test-Path "$userProfile\Documents") {
+                          Copy-Item -Path "$userProfile\Documents" -Destination "./cached-data/Documents" -Recurse -Force -ErrorAction SilentlyContinue
+                          Write-Host "  ✅ Documents saved"
+                      }
+                      
+                      # Downloads
+                      if (Test-Path "$userProfile\Downloads") {
+                          Copy-Item -Path "$userProfile\Downloads" -Destination "./cached-data/Downloads" -Recurse -Force -ErrorAction SilentlyContinue
+                          Write-Host "  ✅ Downloads saved"
+                      }
+                      
+                      # Roblox (with timeout protection)
+                      if (Test-Path "$userProfile\AppData\Local\Roblox") {
+                          Write-Host "  📦 Saving Roblox data (this may take a while)..."
+                          New-Item -ItemType Directory -Force -Path "./cached-data/AppData/Local" -ErrorAction SilentlyContinue | Out-Null
+                          
+                          $robloxJob = Start-Job -ScriptBlock {
+                              param($source, $dest)
+                              Copy-Item -Path $source -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
+                          } -ArgumentList "$userProfile\AppData\Local\Roblox", "./cached-data/AppData/Local/Roblox"
+                          
+                          # Wait max 5 minutes for Roblox copy
+                          $robloxJob | Wait-Job -Timeout 300 | Out-Null
+                          
+                          if ($robloxJob.State -eq "Running") {
+                              Write-Host "  ⚠️ Roblox copy timed out, stopping..."
+                              Stop-Job -Job $robloxJob
+                          } else {
+                              Write-Host "  ✅ AppData\Local\Roblox saved"
+                          }
+                          
+                          Remove-Job -Job $robloxJob -Force
+                      }
+                      
+                      # Bloxtrap
+                      if (Test-Path "C:\Bloxtrap") {
+                          Copy-Item -Path "C:\Bloxtrap" -Destination "./cached-data/Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
+                          Write-Host "  ✅ C:\Bloxtrap saved"
+                      }
+                      
+                      # Counter
+                      Copy-Item "$userProfile\Desktop\session-counter.txt" -Destination "./cached-data/session-counter.txt" -Force -ErrorAction SilentlyContinue
+                      
+                      $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                      Write-Host "  ✅ All data saved at $timestamp`n"
+                      
+                  } catch {
+                      Write-Host "  ⚠️ Error during save: $_"
                   }
-                  
-                  if (Test-Path "$userProfile\Documents") {
-                      Copy-Item -Path "$userProfile\Documents" -Destination "./cached-data/Documents" -Recurse -Force -ErrorAction SilentlyContinue
-                      Write-Host "  ✅ Documents saved"
-                  }
-                  
-                  if (Test-Path "$userProfile\Downloads") {
-                      Copy-Item -Path "$userProfile\Downloads" -Destination "./cached-data/Downloads" -Recurse -Force -ErrorAction SilentlyContinue
-                      Write-Host "  ✅ Downloads saved"
-                  }
-                  
-                  if (Test-Path "$userProfile\AppData\Local\Roblox") {
-                      New-Item -ItemType Directory -Force -Path "./cached-data/AppData/Local" -ErrorAction SilentlyContinue
-                      Copy-Item -Path "$userProfile\AppData\Local\Roblox" -Destination "./cached-data/AppData/Local/Roblox" -Recurse -Force -ErrorAction SilentlyContinue
-                      Write-Host "  ✅ AppData\Local\Roblox saved"
-                  }
-                  
-                  if (Test-Path "C:\Bloxtrap") {
-                      Copy-Item -Path "C:\Bloxtrap" -Destination "./cached-data/Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
-                      Write-Host "  ✅ C:\Bloxtrap saved"
-                  }
-                  
-                  Copy-Item "$userProfile\Desktop\session-counter.txt" -Destination "./cached-data/session-counter.txt" -Force -ErrorAction SilentlyContinue
-                  
-                  Get-WmiObject -Class Win32_Product | Select-Object Name, Version | Out-File -FilePath "./cached-data/installed-apps.txt"
-                  
-                  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                  Write-Host "  ✅ Data saved at $timestamp"
                   
                   $lastSave = Get-Date
               }
@@ -316,26 +332,53 @@ jobs:
         if: always()
         shell: powershell
         run: |
-          Write-Host "`nFinal save before exit..."
+          Write-Host "`n💾 Final save before exit..."
           
           $userProfile = "C:\Users\runneradmin"
           
-          Remove-Item -Path "./cached-data" -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path "./cached-data"
-          
-          Copy-Item -Path "$userProfile\Desktop" -Destination "./cached-data/Desktop" -Recurse -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path "$userProfile\Documents" -Destination "./cached-data/Documents" -Recurse -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path "$userProfile\Downloads" -Destination "./cached-data/Downloads" -Recurse -Force -ErrorAction SilentlyContinue
-          
-          if (Test-Path "$userProfile\AppData\Local\Roblox") {
-            New-Item -ItemType Directory -Force -Path "./cached-data/AppData/Local" -ErrorAction SilentlyContinue
-            Copy-Item -Path "$userProfile\AppData\Local\Roblox" -Destination "./cached-data/AppData/Local/Roblox" -Recurse -Force -ErrorAction SilentlyContinue
+          try {
+              Remove-Item -Path "./cached-data" -Recurse -Force -ErrorAction SilentlyContinue
+              New-Item -ItemType Directory -Force -Path "./cached-data" | Out-Null
+              
+              Copy-Item -Path "$userProfile\Desktop" -Destination "./cached-data/Desktop" -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "✅ Desktop saved"
+              
+              Copy-Item -Path "$userProfile\Documents" -Destination "./cached-data/Documents" -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "✅ Documents saved"
+              
+              Copy-Item -Path "$userProfile\Downloads" -Destination "./cached-data/Downloads" -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Host "✅ Downloads saved"
+              
+              if (Test-Path "$userProfile\AppData\Local\Roblox") {
+                New-Item -ItemType Directory -Force -Path "./cached-data/AppData/Local" -ErrorAction SilentlyContinue | Out-Null
+                
+                Write-Host "Saving Roblox data (final save, may take time)..."
+                $job = Start-Job -ScriptBlock {
+                    param($src, $dst)
+                    Copy-Item -Path $src -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
+                } -ArgumentList "$userProfile\AppData\Local\Roblox", "./cached-data/AppData/Local/Roblox"
+                
+                $job | Wait-Job -Timeout 600 | Out-Null
+                
+                if ($job.State -eq "Completed") {
+                    Write-Host "✅ AppData\Local\Roblox saved"
+                } else {
+                    Write-Host "⚠️ Roblox save timed out"
+                    Stop-Job -Job $job
+                }
+                
+                Remove-Job -Job $job -Force
+              }
+              
+              if (Test-Path "C:\Bloxtrap") {
+                Copy-Item -Path "C:\Bloxtrap" -Destination "./cached-data/Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "✅ C:\Bloxtrap saved"
+              }
+              
+              Copy-Item "$userProfile\Desktop\session-counter.txt" -Destination "./cached-data/session-counter.txt" -Force -ErrorAction SilentlyContinue
+              
+              Write-Host "✅ Final data saved successfully!"
+              
+          } catch {
+              Write-Host "⚠️ Error during final save: $_"
           }
-          
-          if (Test-Path "C:\Bloxtrap") {
-            Copy-Item -Path "C:\Bloxtrap" -Destination "./cached-data/Bloxtrap" -Recurse -Force -ErrorAction SilentlyContinue
-          }
-          
-          Copy-Item "$userProfile\Desktop\session-counter.txt" -Destination "./cached-data/session-counter.txt" -Force -ErrorAction SilentlyContinue
-          
-          Write-Host "✅ Final data saved!"
