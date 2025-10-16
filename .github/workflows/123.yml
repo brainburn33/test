@@ -6,7 +6,7 @@ on:
 jobs:
   rdp-test:
     runs-on: windows-latest
-    timeout-minutes: 60  # можно увеличить при необходимости
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -48,14 +48,15 @@ jobs:
         run: |
           $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           $content = "GitHub Actions successfully uploaded this file at $timestamp"
-          $key = $key -replace "r", ""    # удаляем CR
-          $key = $key -replace "n", "`n"  # нормализуем LF
-
-          $sw = New-Object System.IO.StreamWriter($path, $false, [System.Text.Encoding]::UTF8)
-          $sw.Write($key)
-          $sw.Close()
+          $testFile = "test-upload.txt"
+          
+          # Создаем тестовый файл
+          Set-Content -Path $testFile -Value $content -Encoding UTF8
+          Write-Host "Test file created: $testFile"
+          
+          # Загружаем на Google Drive
           Write-Host "Uploading file to Google Drive..."
-          rclone copy "./test-upload.txt" gdrive:/GitHub-RDP --progress
+          rclone copy "./$testFile" gdrive:/GitHub-RDP --progress
           Write-Host "File uploaded successfully!"
 
       - name: Download back from Google Drive (check)
