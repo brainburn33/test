@@ -1,4 +1,4 @@
-name: Test Google Drive & Auto-Restart (Secure)
+name: Test Google Drive & Auto-Restart (Secure
 
 on:
   workflow_dispatch:
