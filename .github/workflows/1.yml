@@ -181,7 +181,7 @@ jobs:
               }
               
               $assetUrl = $asset.url
-              $robloxZipPath = "$env:TEMP\RobloxPlayer.zip"
+              $robloxZipPath = "$env:TEMP\version-7a4a5d7d1fb3449f.zip"
               
               Write-Host "Downloading..."
               Invoke-WebRequest -Uri $assetUrl -Headers $downloadHeaders -OutFile $robloxZipPath
