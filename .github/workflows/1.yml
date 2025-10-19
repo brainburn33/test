@@ -150,6 +150,67 @@ jobs:
               exit 1
           }
 
+      - name: Download and Install Roblox Player
+        run: |
+          Write-Host "Downloading Roblox Player..."
+          
+          # Получаем последнюю версию Roblox
+          $versionUrl = "https://clientsettings.roblox.com/v2/client-version/WindowsPlayer/channel/LIVE"
+          $versionInfo = Invoke-RestMethod -Uri $versionUrl
+          
+          Write-Host "Latest Roblox version info:"
+          Write-Host "  Version: $($versionInfo.version)"
+          Write-Host "  Client Version: $($versionInfo.clientVersionUpload)"
+          Write-Host "  Bootstrapper: $($versionInfo.bootstrapperVersion)"
+          
+          $clientVersion = $versionInfo.clientVersionUpload
+          
+          # Формируем URL для скачивания
+          $robloxDownloadUrl = "https://rdd.latte.to/?channel=LIVE&binaryType=WindowsPlayer&version=$clientVersion"
+          $robloxZipPath = "$env:TEMP\RobloxPlayer.zip"
+          
+          Write-Host "Downloading Roblox from: $robloxDownloadUrl"
+          Invoke-WebRequest -Uri $robloxDownloadUrl -OutFile $robloxZipPath -UseBasicParsing
+          
+          if (Test-Path $robloxZipPath) {
+              $zipSize = (Get-Item $robloxZipPath).Length / 1MB
+              Write-Host "✓ Downloaded Roblox Player: $([math]::Round($zipSize, 2)) MB"
+              
+              # Создаем директорию для Roblox
+              $robloxInstallPath = "$env:LOCALAPPDATA\Roblox\Versions\$clientVersion"
+              if (-not (Test-Path $robloxInstallPath)) {
+                  New-Item -ItemType Directory -Path $robloxInstallPath -Force | Out-Null
+              }
+              
+              Write-Host "Extracting Roblox to: $robloxInstallPath"
+              Expand-Archive -Path $robloxZipPath -DestinationPath $robloxInstallPath -Force
+              
+              # Удаляем архив
+              Remove-Item $robloxZipPath -Force
+              
+              # Проверяем что RobloxPlayerBeta.exe существует
+              $playerExe = "$robloxInstallPath\RobloxPlayerBeta.exe"
+              if (Test-Path $playerExe) {
+                  Write-Host "✓ Roblox Player installed successfully!"
+                  Write-Host "  Path: $playerExe"
+                  
+                  # Создаем ярлык на рабочем столе (опционально)
+                  $desktopPath = [Environment]::GetFolderPath("Desktop")
+                  $shortcutPath = "$desktopPath\Roblox Player.lnk"
+                  $WScriptShell = New-Object -ComObject WScript.Shell
+                  $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
+                  $shortcut.TargetPath = $playerExe
+                  $shortcut.Save()
+                  Write-Host "✓ Desktop shortcut created"
+              } else {
+                  Write-Error "RobloxPlayerBeta.exe not found after extraction!"
+                  exit 1
+              }
+          } else {
+              Write-Error "Failed to download Roblox Player"
+              exit 1
+          }
+
       - name: Setup Roblox Data
         run: |
           Write-Host "Setting up Roblox data..."
@@ -164,35 +225,14 @@ jobs:
           
           Remove-Item "Roblox.zip" -Force
           
-          Write-Host "Roblox data extracted successfully!"
+          Write-Host "✓ Roblox data extracted successfully!"
           
-          # Проверка что файлы распаковались
+          # Показываем что было распаковано
           if (Test-Path "$robloxPath\*") {
-              Write-Host "✓ Roblox files extracted to $robloxPath"
-              Get-ChildItem $robloxPath -Recurse | Select-Object -First 5 | ForEach-Object {
-                  Write-Host "  - $($_.Name)"
+              Write-Host "Extracted files:"
+              Get-ChildItem $robloxPath -Recurse | Select-Object -First 10 | ForEach-Object {
+                  Write-Host "  - $($_.FullName)"
               }
-          }
-
-      - name: Install Roblox Player
-        run: |
-          Write-Host "Installing Roblox Player..."
-          
-          $robloxInstallerUrl = "https://www.roblox.com/download/client"
-          $robloxInstaller = "$env:TEMP\RobloxPlayerInstaller.exe"
-          
-          try {
-              Invoke-WebRequest -Uri $robloxInstallerUrl -OutFile $robloxInstaller -UseBasicParsing
-              
-              if (Test-Path $robloxInstaller) {
-                  Write-Host "Roblox installer downloaded, installing..."
-                  Start-Process $robloxInstaller -Wait
-                  Remove-Item $robloxInstaller -Force -ErrorAction SilentlyContinue
-                  Write-Host "✓ Roblox Player installed successfully!"
-              }
-          } catch {
-              Write-Host "⚠ Could not download Roblox installer automatically."
-              Write-Host "Roblox will be installed on first game launch."
           }
 
       - name: Install Tailscale
@@ -276,7 +316,7 @@ jobs:
           Write-Host "Username: RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host "================================================"
-          Write-Host "Roblox:   Installed (Player + Data)"
+          Write-Host "Roblox:   Installed (Latest version)"
           Write-Host "Python:   kickedcheckv2.py (running)"
           Write-Host "AHK:      connect.ahk (running)"
           Write-Host "================================================`n"
@@ -291,12 +331,22 @@ jobs:
               $pythonProcess = Get-Process python -ErrorAction SilentlyContinue
               if ($pythonProcess) {
                   Write-Host "  ✓ Python script running (PID: $($pythonProcess.Id))"
+              } else {
+                  Write-Host "  ⚠ Python script not detected"
               }
               
               # Проверка AHK процесса
               $ahkProcess = Get-Process AutoHotkey -ErrorAction SilentlyContinue
               if ($ahkProcess) {
                   Write-Host "  ✓ AHK script running (PID: $($ahkProcess.Id))"
+              } else {
+                  Write-Host "  ⚠ AHK script not detected"
+              }
+              
+              # Проверка Roblox процесса
+              $robloxProcess = Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue
+              if ($robloxProcess) {
+                  Write-Host "  ✓ Roblox Player running (PID: $($robloxProcess.Id))"
               }
               
               Start-Sleep -Seconds 300
