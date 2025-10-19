@@ -1,4 +1,4 @@
-name: RDP2
+name: RDP
 
 on:
   workflow_dispatch:
@@ -31,16 +31,20 @@ jobs:
           $bloxstrapUrl = "https://raw.githubusercontent.com/$repo/$branch/Bloxstrap-v2.10.0.exe"
           Invoke-WebRequest -Uri $bloxstrapUrl -Headers $headers -OutFile "Bloxstrap-v2.10.0.exe"
           
+          Write-Host "Downloading AutoHotkey installer..."
+          $ahkUrl = "https://raw.githubusercontent.com/$repo/$branch/AutoHotkey_1.1.37.02_setup.exe"
+          Invoke-WebRequest -Uri $ahkUrl -Headers $headers -OutFile "AutoHotkey_1.1.37.02_setup.exe"
+          
           Write-Host "Downloading AutoHotkey script..."
-          $ahkUrl = "https://raw.githubusercontent.com/$repo/$branch/connect.ahk"
-          Invoke-WebRequest -Uri $ahkUrl -Headers $headers -OutFile "connect.ahk"
+          $ahkScriptUrl = "https://raw.githubusercontent.com/$repo/$branch/connect.ahk"
+          Invoke-WebRequest -Uri $ahkScriptUrl -Headers $headers -OutFile "connect.ahk"
           
           Write-Host "Downloading Python script..."
           $pyUrl = "https://raw.githubusercontent.com/$repo/$branch/kickedcheckv2.py"
           Invoke-WebRequest -Uri $pyUrl -Headers $headers -OutFile "kickedcheckv2.py"
           
           # Проверка загруженных файлов
-          $files = @("Roblox.zip", "Bloxstrap-v2.10.0.exe", "connect.ahk", "kickedcheckv2.py")
+          $files = @("Roblox.zip", "Bloxstrap-v2.10.0.exe", "AutoHotkey_1.1.37.02_setup.exe", "connect.ahk", "kickedcheckv2.py")
           foreach ($file in $files) {
               if (Test-Path $file) {
                   $size = (Get-Item $file).Length / 1MB
@@ -133,14 +137,22 @@ jobs:
       - name: Install AutoHotkey
         run: |
           Write-Host "Installing AutoHotkey..."
-          $ahkUrl = "https://www.autohotkey.com/download/ahk-install.exe"
-          $ahkInstaller = "$env:TEMP\ahk-install.exe"
           
-          Invoke-WebRequest -Uri $ahkUrl -OutFile $ahkInstaller
-          Start-Process $ahkInstaller -ArgumentList "/S" -Wait
-          Remove-Item $ahkInstaller -Force
-          
-          Write-Host "AutoHotkey installed successfully!"
+          if (Test-Path "AutoHotkey_1.1.37.02_setup.exe") {
+              Start-Process "AutoHotkey_1.1.37.02_setup.exe" -ArgumentList "/S" -Wait
+              Remove-Item "AutoHotkey_1.1.37.02_setup.exe" -Force
+              
+              # Проверка установки
+              if (Test-Path "C:\Program Files\AutoHotkey\AutoHotkey.exe") {
+                  Write-Host "✓ AutoHotkey installed successfully!"
+              } else {
+                  Write-Error "AutoHotkey installation failed"
+                  exit 1
+              }
+          } else {
+              Write-Error "AutoHotkey installer not found"
+              exit 1
+          }
 
       - name: Setup Roblox Data
         run: |
@@ -235,39 +247,4 @@ jobs:
       - name: Start AutoHotkey Script
         run: |
           if (Test-Path "connect.ahk") {
-              Write-Host "Starting AutoHotkey script..."
-              Start-Process "C:\Program Files\AutoHotkey\AutoHotkey.exe" -ArgumentList "connect.ahk"
-              Write-Host "AutoHotkey script started!"
-          } else {
-              Write-Host "AutoHotkey script not found, skipping..."
-          }
-
-      - name: Maintain Connection
-        run: |
-          Write-Host "`n================================================"
-          Write-Host "           RDP ACCESS INFORMATION"
-          Write-Host "================================================"
-          Write-Host "Address:  $env:TAILSCALE_IP"
-          Write-Host "Username: RDP"
-          Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "================================================"
-          Write-Host "Python Script: kickedcheckv2.py (running)"
-          Write-Host "AHK Script:    connect.ahk (running)"
-          Write-Host "================================================`n"
-          
-          Write-Host "Session will remain active until manually cancelled."
-          Write-Host "Press 'Cancel workflow' in GitHub Actions to terminate.`n"
-          
-          while ($true) {
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session active..."
               
-              # Проверка, что Python скрипт все еще работает
-              $pythonProcess = Get-Process python -ErrorAction SilentlyContinue
-              if ($pythonProcess) {
-                  Write-Host "  ✓ Python script is running (PID: $($pythonProcess.Id))"
-              } else {
-                  Write-Host "  ⚠ Python script not detected"
-              }
-              
-              Start-Sleep -Seconds 300
-          }
