@@ -300,10 +300,10 @@ jobs:
           $pythonScriptPath = "C:\Users\RDP\Downloads\kickedcheckv2.py"
           
           $batContent = @"
-@echo off
-cd /d C:\Users\RDP\Downloads
-start /min python kickedcheckv2.py
-"@
+          @echo off
+          cd /d C:\Users\RDP\Downloads
+          start /min python kickedcheckv2.py
+          "@
           Set-Content -Path $pythonStartupBat -Value $batContent
           Write-Host "✓ Python startup script created"
           
@@ -312,10 +312,10 @@ start /min python kickedcheckv2.py
           $ahkScriptPath = "C:\Users\RDP\Downloads\connect.ahk"
           
           $batContent = @"
-@echo off
-timeout /t 5 /nobreak
-start "" "C:\Program Files\AutoHotkey\AutoHotkey.exe" "C:\Users\RDP\Downloads\connect.ahk"
-"@
+          @echo off
+          timeout /t 5 /nobreak
+          start "" "C:\Program Files\AutoHotkey\AutoHotkey.exe" "C:\Users\RDP\Downloads\connect.ahk"
+          "@
           Set-Content -Path $ahkStartupBat -Value $batContent
           Write-Host "✓ AHK startup script created"
           
