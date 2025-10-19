@@ -150,67 +150,78 @@ jobs:
               exit 1
           }
 
-      - name: Download and Install Roblox Player
+      - name: Download Roblox Player from GitHub Release
         run: |
-          Write-Host "Downloading Roblox Player..."
+          Write-Host "Downloading Roblox Player from GitHub Release..."
           
-          # Получаем последнюю версию Roblox
-          $versionUrl = "https://clientsettings.roblox.com/v2/client-version/WindowsPlayer/channel/LIVE"
-          $versionInfo = Invoke-RestMethod -Uri $versionUrl
+          $token = "${{ secrets.GH_PAT }}"
+          $repo = "brainburn33/repo"
+          $releaseTag = "v1.0.0"
           
-          Write-Host "Latest Roblox version info:"
-          Write-Host "  Version: $($versionInfo.version)"
-          Write-Host "  Client Version: $($versionInfo.clientVersionUpload)"
-          Write-Host "  Bootstrapper: $($versionInfo.bootstrapperVersion)"
+          # Получаем информацию о релизе
+          $releaseUrl = "https://api.github.com/repos/$repo/releases/tags/$releaseTag"
+          $headers = @{
+              Authorization = "Bearer $token"
+              Accept = "application/vnd.github.v3+json"
+          }
           
-          $clientVersion = $versionInfo.clientVersionUpload
+          Write-Host "Fetching release info..."
+          $release = Invoke-RestMethod -Uri $releaseUrl -Headers $headers
           
-          # Формируем URL для скачивания
-          $robloxDownloadUrl = "https://rdd.latte.to/?channel=LIVE&binaryType=WindowsPlayer&version=$clientVersion"
-          $robloxZipPath = "$env:TEMP\RobloxPlayer.zip"
+          # Находим нужный asset
+          $asset = $release.assets | Where-Object { $_.name -eq "RobloxPlayer.zip" }
           
-          Write-Host "Downloading Roblox from: $robloxDownloadUrl"
-          Invoke-WebRequest -Uri $robloxDownloadUrl -OutFile $robloxZipPath -UseBasicParsing
-          
-          if (Test-Path $robloxZipPath) {
-              $zipSize = (Get-Item $robloxZipPath).Length / 1MB
-              Write-Host "✓ Downloaded Roblox Player: $([math]::Round($zipSize, 2)) MB"
+          if ($asset) {
+              Write-Host "Found asset: $($asset.name) ($([math]::Round($asset.size / 1MB, 2)) MB)"
               
-              # Создаем директорию для Roblox
-              $robloxInstallPath = "$env:LOCALAPPDATA\Roblox\Versions\$clientVersion"
-              if (-not (Test-Path $robloxInstallPath)) {
-                  New-Item -ItemType Directory -Path $robloxInstallPath -Force | Out-Null
+              # Скачиваем asset
+              $downloadHeaders = @{
+                  Authorization = "Bearer $token"
+                  Accept = "application/octet-stream"
               }
               
-              Write-Host "Extracting Roblox to: $robloxInstallPath"
-              Expand-Archive -Path $robloxZipPath -DestinationPath $robloxInstallPath -Force
+              $assetUrl = $asset.url
+              $robloxZipPath = "$env:TEMP\RobloxPlayer.zip"
               
-              # Удаляем архив
-              Remove-Item $robloxZipPath -Force
+              Write-Host "Downloading..."
+              Invoke-WebRequest -Uri $assetUrl -Headers $downloadHeaders -OutFile $robloxZipPath
               
-              # Проверяем что RobloxPlayerBeta.exe существует
-              $playerExe = "$robloxInstallPath\RobloxPlayerBeta.exe"
-              if (Test-Path $playerExe) {
-                  Write-Host "✓ Roblox Player installed successfully!"
-                  Write-Host "  Path: $playerExe"
+              if (Test-Path $robloxZipPath) {
+                  $zipSize = (Get-Item $robloxZipPath).Length / 1MB
+                  Write-Host "✓ Downloaded: $([math]::Round($zipSize, 2)) MB"
                   
-                  # Создаем ярлык на рабочем столе (опционально)
-                  $desktopPath = [Environment]::GetFolderPath("Desktop")
-                  $shortcutPath = "$desktopPath\Roblox Player.lnk"
-                  $WScriptShell = New-Object -ComObject WScript.Shell
-                  $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
-                  $shortcut.TargetPath = $playerExe
-                  $shortcut.Save()
-                  Write-Host "✓ Desktop shortcut created"
-              } else {
-                  Write-Error "RobloxPlayerBeta.exe not found after extraction!"
-                  exit 1
+                  # Распаковка
+                  $robloxInstallPath = "$env:LOCALAPPDATA\Roblox\Versions"
+                  if (-not (Test-Path $robloxInstallPath)) {
+                      New-Item -ItemType Directory -Path $robloxInstallPath -Force | Out-Null
+                  }
+                  
+                  Write-Host "Extracting Roblox Player..."
+                  Expand-Archive -Path $robloxZipPath -DestinationPath $robloxInstallPath -Force
+                  Remove-Item $robloxZipPath -Force
+                  
+                  # Поиск exe
+                  $playerExe = Get-ChildItem -Path $robloxInstallPath -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                  
+                  if ($playerExe) {
+                      Write-Host "✓ Roblox Player installed at: $($playerExe.FullName)"
+                      
+                      # Ярлык
+                      $desktopPath = [Environment]::GetFolderPath("Desktop")
+                      $shortcutPath = "$desktopPath\Roblox Player.lnk"
+                      $WScriptShell = New-Object -ComObject WScript.Shell
+                      $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
+                      $shortcut.TargetPath = $playerExe.FullName
+                      $shortcut.Save()
+                      Write-Host "✓ Shortcut created"
+                  } else {
+                      Write-Host "⚠ RobloxPlayerBeta.exe not found"
+                  }
               }
           } else {
-              Write-Error "Failed to download Roblox Player"
+              Write-Error "RobloxPlayer.zip not found in release assets"
               exit 1
           }
-
       - name: Setup Roblox Data
         run: |
           Write-Host "Setting up Roblox data..."
