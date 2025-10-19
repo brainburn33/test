@@ -156,7 +156,7 @@ jobs:
           
           $token = "${{ secrets.GH_PAT }}"
           $repo = "brainburn33/repo"
-          $releaseTag = "v1.0.0"
+          $releaseTag = "ver"
           
           # Получаем информацию о релизе
           $releaseUrl = "https://api.github.com/repos/$repo/releases/tags/$releaseTag"
