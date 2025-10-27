@@ -263,7 +263,7 @@ jobs:
           
           $rdpLocalAppData = "C:\Users\RDP\AppData\Local"
           $robloxPath = "$rdpLocalAppData\Roblox"
-          $robloxZipPath = "C:\Users\RDP\Downloads\version-7a4a5d7d1fb3449f.zip"
+          $robloxZipPath = "C:\Users\RDP\Downloads\Roblox.zip"
           
           if (-not (Test-Path $robloxPath)) {
               New-Item -ItemType Directory -Path $robloxPath -Force | Out-Null
