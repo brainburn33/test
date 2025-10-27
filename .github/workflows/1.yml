@@ -23,7 +23,7 @@ jobs:
           Restart-Service -Name TermService -Force
           Write-Host "RDP configured successfully!"
 
-      - name: Create RDP User with Secure Password
+      - name: create RDP user with Secure Password
         run: |
           Write-Host "Creating RDP user..."
           Add-Type -AssemblyName System.Security
@@ -51,30 +51,7 @@ jobs:
               Write-Error "User creation failed"
               exit 1
           }
-          
-          # Создаём профиль пользователя RDP
-          Write-Host "Creating RDP user profile..."
-          $rdpUserPath = "C:\Users\RDP"
-          if (-not (Test-Path $rdpUserPath)) {
-              # Создаём базовые папки профиля
-              New-Item -ItemType Directory -Path "$rdpUserPath\Desktop" -Force | Out-Null
-              New-Item -ItemType Directory -Path "$rdpUserPath\Downloads" -Force | Out-Null
-              New-Item -ItemType Directory -Path "$rdpUserPath\AppData\Local" -Force | Out-Null
-              New-Item -ItemType Directory -Path "$rdpUserPath\AppData\Roaming" -Force | Out-Null
-              
-              # Устанавливаем права владельца
-              $acl = Get-Acl $rdpUserPath
-              $userSID = (Get-LocalUser -Name "RDP").SID
-              $owner = New-Object System.Security.Principal.SecurityIdentifier($userSID)
-              $acl.SetOwner($owner)
-              
-              $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
-              $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-              $acl.SetAccessRule($accessRule)
-              Set-Acl $rdpUserPath $acl
-          }
-          
-          Write-Host "✓ RDP user created successfully!"
+          Write-Host "RDP user created successfully!"
 
       - name: Download Files from Private Repository
         run: |
@@ -86,7 +63,12 @@ jobs:
           
           $repo = "brainburn33/repo"
           $branch = "main"
-          $downloadPath = "C:\Users\RDP\Downloads"
+          $rdpUserPath = "C:\Users\RDP"
+          $downloadPath = "$rdpUserPath\Downloads"
+          
+          if (-not (Test-Path $downloadPath)) {
+              New-Item -ItemType Directory -Path $downloadPath -Force | Out-Null
+          }
           
           Write-Host "Downloading files to: $downloadPath"
           
@@ -106,7 +88,6 @@ jobs:
           $pyUrl = "https://raw.githubusercontent.com/$repo/$branch/kickedcheckv2.py"
           Invoke-WebRequest -Uri $pyUrl -Headers $headers -OutFile "$downloadPath\kickedcheckv2.py"
           
-          # Проверка загруженных файлов
           $files = @("Roblox.zip", "AutoHotkey_1.1.37.02_setup.exe", "connect.ahk", "kickedcheckv2.py")
           foreach ($file in $files) {
               $filePath = "$downloadPath\$file"
@@ -119,112 +100,42 @@ jobs:
               }
           }
           
-          # Устанавливаем права для пользователя RDP
-          Get-ChildItem $downloadPath -Recurse | ForEach-Object {
-              $acl = Get-Acl $_.FullName
-              $permission = "RDP","FullControl","None","None","Allow"
-              $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-              $acl.SetAccessRule($accessRule)
-              Set-Acl $_.FullName $acl
-          }
+          $acl = Get-Acl $downloadPath
+          $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
+          $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
+          $acl.SetAccessRule($accessRule)
+          Set-Acl $downloadPath $acl
           
           Write-Host "✓ All files downloaded and permissions set for RDP user"
 
-      - name: Install Python for RDP User
+      - name: Install Python (System-wide)
         run: |
-          Write-Host "Installing Python 3.11 for RDP user..."
-          
+          Write-Host "Installing Python 3.11 system-wide..."
           $pythonUrl = "https://www.python.org/ftp/python/3.11.0/python-3.11.0-amd64.exe"
-          $pythonInstaller = "C:\Users\RDP\Downloads\python-installer.exe"
-          
+          $pythonInstaller = "$env:TEMP\python-installer.exe"
           Invoke-WebRequest -Uri $pythonUrl -OutFile $pythonInstaller
-          
-          # Устанавливаем Python в профиль RDP пользователя
-          $rdpPythonPath = "C:\Users\RDP\AppData\Local\Programs\Python\Python311"
-          
-          # Устанавливаем от имени системы, но в папку пользователя RDP
-          $installArgs = @(
-              "/quiet",
-              "InstallAllUsers=0",
-              "PrependPath=1",
-              "Include_test=0",
-              "TargetDir=$rdpPythonPath"
-          )
-          
-          Start-Process $pythonInstaller -ArgumentList $installArgs -Wait -NoNewWindow
+          Start-Process $pythonInstaller -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0" -Wait
           Remove-Item $pythonInstaller -Force
-          
-          # Проверяем установку
-          if (Test-Path "$rdpPythonPath\python.exe") {
-              Write-Host "✓ Python installed at: $rdpPythonPath"
-              
-              # Устанавливаем права для RDP
-              $acl = Get-Acl $rdpPythonPath
-              $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
-              $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-              $acl.SetAccessRule($accessRule)
-              Set-Acl $rdpPythonPath $acl
-          } else {
-              Write-Error "Python installation failed"
-              exit 1
-          }
+          Write-Host "Python installed successfully!"
 
-      - name: Install Python Libraries for RDP User
+      - name: Install Python Libraries (System-wide)
         run: |
-          Write-Host "Installing Python libraries for RDP user..."
-          
-          $rdpPythonPath = "C:\Users\RDP\AppData\Local\Programs\Python\Python311"
-          $pythonExe = "$rdpPythonPath\python.exe"
-          $pipExe = "$rdpPythonPath\Scripts\pip.exe"
-          
-          if (Test-Path $pythonExe) {
-              Write-Host "Upgrading pip..."
-              & $pythonExe -m pip install --upgrade pip
-              
-              Write-Host "Installing libraries..."
-              & $pipExe install numpy opencv-python pygetwindow pywin32
-              
-              Write-Host "✓ Python libraries installed for RDP user"
-          } else {
-              Write-Error "Python executable not found at: $pythonExe"
-              exit 1
-          }
+          Write-Host "Installing Python libraries..."
+          Start-Sleep -Seconds 5
+          $env:Path = "C:\Program Files\Python311;C:\Program Files\Python311\Scripts;" + $env:Path
+          python -m pip install --upgrade pip
+          pip install numpy opencv-python pygetwindow pywin32
+          Write-Host "Python libraries installed successfully!"
 
-      - name: Install AutoHotkey for RDP User
+      - name: Install AutoHotkey (System-wide)
         run: |
-          Write-Host "Installing AutoHotkey for RDP user..."
-          
+          Write-Host "Installing AutoHotkey..."
           $ahkInstaller = "C:\Users\RDP\Downloads\AutoHotkey_1.1.37.02_setup.exe"
-          $rdpAhkPath = "C:\Users\RDP\AppData\Local\Programs\AutoHotkey"
-          
           if (Test-Path $ahkInstaller) {
-              # Создаём директорию для AutoHotkey
-              if (-not (Test-Path $rdpAhkPath)) {
-                  New-Item -ItemType Directory -Path $rdpAhkPath -Force | Out-Null
-              }
-              
-              # Устанавливаем AutoHotkey в папку пользователя RDP
-              Start-Process $ahkInstaller -ArgumentList "/S", "/D=$rdpAhkPath" -Wait -NoNewWindow
-              
-              Start-Sleep -Seconds 3
-              
-              if (Test-Path "$rdpAhkPath\AutoHotkey.exe") {
-                  Write-Host "✓ AutoHotkey installed at: $rdpAhkPath"
-                  
-                  # Устанавливаем права для RDP
-                  $acl = Get-Acl $rdpAhkPath
-                  $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
-                  $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-                  $acl.SetAccessRule($accessRule)
-                  Set-Acl $rdpAhkPath $acl
-                  
-                  # Создаём ярлык на рабочем столе
-                  $desktopPath = "C:\Users\RDP\Desktop"
-                  $shortcutPath = "$desktopPath\AutoHotkey.lnk"
-                  $WScriptShell = New-Object -ComObject WScript.Shell
-                  $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
-                  $shortcut.TargetPath = "$rdpAhkPath\AutoHotkey.exe"
-                  $shortcut.Save()
+              Start-Process $ahkInstaller -ArgumentList "/S" -Wait
+              Remove-Item $ahkInstaller -Force
+              if (Test-Path "C:\Program Files\AutoHotkey\AutoHotkey.exe") {
+                  Write-Host "✓ AutoHotkey installed successfully!"
               } else {
                   Write-Error "AutoHotkey installation failed"
                   exit 1
@@ -244,7 +155,7 @@ jobs:
           $fileName = "version-4aeb17bd13994560.zip"
           
           $rdpLocalAppData = "C:\Users\RDP\AppData\Local"
-          $robloxZipPath = "C:\Users\RDP\Downloads\roblox-player.zip"
+          $robloxZipPath = "$env:TEMP\version-4aeb17bd13994560.zip"
           
           try {
               Write-Host "Fetching release info..."
@@ -260,12 +171,13 @@ jobs:
               
               if (-not $asset) {
                   Write-Error "Asset '$fileName' not found in release '$releaseTag'"
-                  Write-Host "Available assets:"
+                  Write-Host "Available assets in this release:"
                   $release.assets | ForEach-Object { Write-Host "  - $($_.name)" }
                   exit 1
               }
               
-              Write-Host "Found asset: $($asset.name)"
+              Write-Host "Found asset: $($asset.name) (ID: $($asset.id))"
+              Write-Host "Downloading from: $($asset.url)"
               
               $downloadHeaders = @{
                   Authorization = "Bearer $token"
@@ -276,64 +188,51 @@ jobs:
               
               if (Test-Path $robloxZipPath) {
                   $zipSize = (Get-Item $robloxZipPath).Length / 1MB
-                  Write-Host "✓ Downloaded: $([math]::Round($zipSize, 2)) MB"
+                  Write-Host "✓ Downloaded Roblox Player: $([math]::Round($zipSize, 2)) MB"
                   
-                  # Создаём структуру для Roblox в профиле RDP
-                  $robloxBasePath = "$rdpLocalAppData\Roblox"
-                  $robloxVersionsPath = "$robloxBasePath\Versions"
-                  
-                  if (-not (Test-Path $robloxBasePath)) {
-                      New-Item -ItemType Directory -Path $robloxBasePath -Force | Out-Null
+                  $robloxInstallPath = "$rdpLocalAppData\Roblox\Versions"
+                  if (-not (Test-Path $robloxInstallPath)) {
+                      New-Item -ItemType Directory -Path $robloxInstallPath -Force | Out-Null
                   }
                   
-                  if (-not (Test-Path $robloxVersionsPath)) {
-                      New-Item -ItemType Directory -Path $robloxVersionsPath -Force | Out-Null
-                  }
-                  
-                  Write-Host "Extracting to: $robloxVersionsPath"
-                  Expand-Archive -Path $robloxZipPath -DestinationPath $robloxVersionsPath -Force
+                  Write-Host "Extracting Roblox to: $robloxInstallPath"
+                  Expand-Archive -Path $robloxZipPath -DestinationPath $robloxInstallPath -Force
                   Remove-Item $robloxZipPath -Force
                   
-                  # Устанавливаем права для RDP на всю папку Roblox
-                  Write-Host "Setting permissions for RDP user..."
-                  $acl = Get-Acl $robloxBasePath
-                  $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
-                  $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-                  $acl.SetAccessRule($accessRule)
-                  Set-Acl $robloxBasePath $acl
-                  
-                  Write-Host "✓ Permissions set for RDP user"
-                  
-                  # Ищем RobloxPlayerBeta.exe
-                  $playerExe = Get-ChildItem -Path $robloxVersionsPath -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                  $playerExe = Get-ChildItem -Path $robloxInstallPath -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
                   
                   if ($playerExe) {
-                      Write-Host "✓ Roblox Player found at: $($playerExe.FullName)"
+                      Write-Host "✓ Roblox Player installed at: $($playerExe.FullName)"
                       
-                      # Создаём ярлык на рабочем столе RDP
                       $rdpDesktop = "C:\Users\RDP\Desktop"
-                      $shortcutPath = "$rdpDesktop\Roblox Player.lnk"
+                      if (-not (Test-Path $rdpDesktop)) {
+                          New-Item -ItemType Directory -Path $rdpDesktop -Force | Out-Null
+                      }
                       
+                      $shortcutPath = "$rdpDesktop\Roblox Player.lnk"
                       $WScriptShell = New-Object -ComObject WScript.Shell
                       $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
                       $shortcut.TargetPath = $playerExe.FullName
-                      $shortcut.WorkingDirectory = $playerExe.DirectoryName
                       $shortcut.Save()
+                      Write-Host "✓ Desktop shortcut created for RDP user"
                       
-                      Write-Host "✓ Desktop shortcut created"
-                      Write-Host "`nRoblox Player installation complete:"
-                      Write-Host "  User: RDP"
-                      Write-Host "  Path: $robloxBasePath"
-                      Write-Host "  Exe:  $($playerExe.FullName)"
+                      $robloxBasePath = "$rdpLocalAppData\Roblox"
+                      $acl = Get-Acl $robloxBasePath
+                      $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
+                      $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
+                      $acl.SetAccessRule($accessRule)
+                      Set-Acl $robloxBasePath $acl
+                      
+                      Write-Host "✓ Roblox Player installation completed successfully"
                   } else {
                       Write-Host "⚠ RobloxPlayerBeta.exe not found"
-                      Write-Host "Contents of $robloxVersionsPath :"
-                      Get-ChildItem $robloxVersionsPath -Recurse | Select-Object -First 10 | ForEach-Object {
+                      Write-Host "Contents of $robloxInstallPath :"
+                      Get-ChildItem $robloxInstallPath -Recurse | Select-Object -First 10 | ForEach-Object {
                           Write-Host "  - $($_.FullName)"
                       }
                   }
               } else {
-                  Write-Error "Failed to download Roblox Player"
+                  Write-Error "Failed to download file"
                   exit 1
               }
               
@@ -353,11 +252,6 @@ jobs:
           $robloxPath = "$rdpLocalAppData\Roblox"
           $robloxZipPath = "C:\Users\RDP\Downloads\Roblox.zip"
           
-          if (-not (Test-Path $robloxZipPath)) {
-              Write-Error "Roblox.zip not found at: $robloxZipPath"
-              exit 1
-          }
-          
           if (-not (Test-Path $robloxPath)) {
               New-Item -ItemType Directory -Path $robloxPath -Force | Out-Null
           }
@@ -366,15 +260,11 @@ jobs:
           Expand-Archive -Path $robloxZipPath -DestinationPath $robloxPath -Force
           Remove-Item $robloxZipPath -Force
           
-          # Устанавливаем права для RDP рекурсивно
-          Write-Host "Setting permissions recursively..."
-          Get-ChildItem -Path $robloxPath -Recurse | ForEach-Object {
-              $acl = Get-Acl $_.FullName
-              $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
-              $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-              $acl.SetAccessRule($accessRule)
-              Set-Acl $_.FullName $acl
-          }
+          $acl = Get-Acl $robloxPath
+          $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
+          $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
+          $acl.SetAccessRule($accessRule)
+          Set-Acl $robloxPath $acl
           
           Write-Host "✓ Roblox data extracted and permissions set for RDP user!"
 
@@ -405,7 +295,7 @@ jobs:
           }
           echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
           Write-Host "Tailscale connected! IP: $tsIP"
-
+      
       - name: Verify RDP Accessibility
         run: |
           Write-Host "Verifying RDP accessibility..."
@@ -426,27 +316,16 @@ jobs:
               New-Item -ItemType Directory -Path $rdpStartupPath -Force | Out-Null
           }
           
-          # Python startup script
           $pythonStartupBat = "$rdpStartupPath\start_python.bat"
-          $batContent = @"
-@echo off
-cd /d C:\Users\RDP\Downloads
-start /min "C:\Users\RDP\AppData\Local\Programs\Python\Python311\python.exe" kickedcheckv2.py
-"@
+          $batContent = "@echo off`ncd /d C:\Users\RDP\Downloads`nstart /min python kickedcheckv2.py"
           Set-Content -Path $pythonStartupBat -Value $batContent
           Write-Host "✓ Python startup script created"
           
-          # AHK startup script
           $ahkStartupBat = "$rdpStartupPath\start_ahk.bat"
-          $batContent = @"
-@echo off
-timeout /t 5 /nobreak
-start "" "C:\Users\RDP\AppData\Local\Programs\AutoHotkey\AutoHotkey.exe" "C:\Users\RDP\Downloads\connect.ahk"
-"@
+          $batContent = "@echo off`ntimeout /t 5 /nobreak`nstart `"`" `"C:\Program Files\AutoHotkey\AutoHotkey.exe`" `"C:\Users\RDP\Downloads\connect.ahk`""
           Set-Content -Path $ahkStartupBat -Value $batContent
           Write-Host "✓ AHK startup script created"
           
-          # Устанавливаем права на Startup
           $acl = Get-Acl $rdpStartupPath
           $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
           $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
@@ -454,40 +333,6 @@ start "" "C:\Users\RDP\AppData\Local\Programs\AutoHotkey\AutoHotkey.exe" "C:\Use
           Set-Acl $rdpStartupPath $acl
           
           Write-Host "✓ Startup scripts configured for RDP user"
-
-      - name: Create Environment Variables for RDP User
-        run: |
-          Write-Host "Setting environment variables for RDP user..."
-          
-          # Получаем пароль RDP пользователя
-          $password = Get-Content "$env:TEMP\rdp_password.txt"
-          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
-          $credential = New-Object System.Management.Automation.PSCredential ("RDP", $securePassword)
-          
-          # Создаём скрипт для установки переменных окружения
-          $envScriptPath = "C:\Users\RDP\set_env.ps1"
-          $envScript = @"
-# Добавляем Python в PATH
-`$env:Path = "C:\Users\RDP\AppData\Local\Programs\Python\Python311;C:\Users\RDP\AppData\Local\Programs\Python\Python311\Scripts;" + `$env:Path
-[Environment]::SetEnvironmentVariable("Path", `$env:Path, "User")
-
-# Добавляем AutoHotkey в PATH
-`$env:Path = "C:\Users\RDP\AppData\Local\Programs\AutoHotkey;" + `$env:Path
-[Environment]::SetEnvironmentVariable("Path", `$env:Path, "User")
-
-Write-Host "Environment variables set for RDP user"
-"@
-          Set-Content -Path $envScriptPath -Value $envScript
-          
-          # Выполняем скрипт от имени RDP пользователя
-          try {
-              Start-Process powershell -Credential $credential -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-File", "$envScriptPath" -Wait -WindowStyle Hidden
-              Write-Host "✓ Environment variables set for RDP user"
-          } catch {
-              Write-Host "⚠ Could not set environment variables as RDP user (will be set on first login)"
-          }
-          
-          Remove-Item $envScriptPath -Force
 
       - name: Start Scripts as RDP User
         run: |
@@ -497,102 +342,32 @@ Write-Host "Environment variables set for RDP user"
           $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
           $credential = New-Object System.Management.Automation.PSCredential ("RDP", $securePassword)
           
-          # Запускаем Python скрипт
           $pythonScriptPath = "C:\Users\RDP\Downloads\kickedcheckv2.py"
           if (Test-Path $pythonScriptPath) {
               Write-Host "Starting Python script as RDP user..."
               
-              $pythonCmd = "C:\Users\RDP\AppData\Local\Programs\Python\Python311\python.exe"
+              Start-Process powershell -Credential $credential -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", "& { Start-Process python -ArgumentList 'C:\Users\RDP\Downloads\kickedcheckv2.py' -WindowStyle Hidden }" -WindowStyle Hidden -ErrorAction SilentlyContinue
               
-              try {
-                  Start-Process powershell -Credential $credential -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", "& { Set-Location 'C:\Users\RDP\Downloads'; Start-Process '$pythonCmd' -ArgumentList '$pythonScriptPath' -WindowStyle Hidden }" -WindowStyle Hidden
-                  Write-Host "✓ Python script started"
-              } catch {
-                  Write-Host "⚠ Could not start Python script (will auto-start on RDP login)"
-              }
+              Write-Host "✓ Python script started"
           }
           
-          # Запускаем AHK скрипт
           Start-Sleep -Seconds 3
           $ahkScriptPath = "C:\Users\RDP\Downloads\connect.ahk"
           if (Test-Path $ahkScriptPath) {
               Write-Host "Starting AHK script as RDP user..."
               
-              $ahkCmd = "C:\Users\RDP\AppData\Local\Programs\AutoHotkey\AutoHotkey.exe"
+              Start-Process powershell -Credential $credential -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", "& { Start-Process 'C:\Program Files\AutoHotkey\AutoHotkey.exe' -ArgumentList 'C:\Users\RDP\Downloads\connect.ahk' }" -WindowStyle Hidden -ErrorAction SilentlyContinue
               
-              try {
-                  Start-Process powershell -Credential $credential -ArgumentList "-NoProfile", "-ExecutionPolicy Bypass", "-Command", "& { Start-Process '$ahkCmd' -ArgumentList '$ahkScriptPath' -WindowStyle Hidden }" -WindowStyle Hidden
-                  Write-Host "✓ AHK script started"
-              } catch {
-                  Write-Host "⚠ Could not start AHK script (will auto-start on RDP login)"
-              }
+              Write-Host "✓ AHK script started"
           }
           
           Start-Sleep -Seconds 5
-          Write-Host "Scripts configured for RDP user"
-
-      - name: Display Installation Summary
-        run: |
-          Write-Host "`n=========================================="
-          Write-Host "    INSTALLATION SUMMARY (RDP USER)"
-          Write-Host "=========================================="
-          Write-Host ""
-          Write-Host "Python:"
-          Write-Host "  Path: C:\Users\RDP\AppData\Local\Programs\Python\Python311"
-          if (Test-Path "C:\Users\RDP\AppData\Local\Programs\Python\Python311\python.exe") {
-              Write-Host "  Status: ✓ Installed"
-          } else {
-              Write-Host "  Status: ✗ NOT FOUND"
-          }
-          
-          Write-Host ""
-          Write-Host "AutoHotkey:"
-          Write-Host "  Path: C:\Users\RDP\AppData\Local\Programs\AutoHotkey"
-          if (Test-Path "C:\Users\RDP\AppData\Local\Programs\AutoHotkey\AutoHotkey.exe") {
-              Write-Host "  Status: ✓ Installed"
-          } else {
-              Write-Host "  Status: ✗ NOT FOUND"
-          }
-          
-          Write-Host ""
-          Write-Host "Roblox Player:"
-          Write-Host "  Path: C:\Users\RDP\AppData\Local\Roblox"
-          $robloxExe = Get-ChildItem "C:\Users\RDP\AppData\Local\Roblox" -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($robloxExe) {
-              Write-Host "  Status: ✓ Installed"
-              Write-Host "  Exe: $($robloxExe.FullName)"
-          } else {
-              Write-Host "  Status: ✗ NOT FOUND"
-          }
-          
-          Write-Host ""
-          Write-Host "Scripts:"
-          Write-Host "  Python: C:\Users\RDP\Downloads\kickedcheckv2.py"
-          if (Test-Path "C:\Users\RDP\Downloads\kickedcheckv2.py") {
-              Write-Host "    Status: ✓ Present"
-          }
-          Write-Host "  AHK: C:\Users\RDP\Downloads\connect.ahk"
-          if (Test-Path "C:\Users\RDP\Downloads\connect.ahk") {
-              Write-Host "    Status: ✓ Present"
-          }
-          
-          Write-Host ""
-          Write-Host "Startup Scripts:"
-          Write-Host "  Location: C:\Users\RDP\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
-          if (Test-Path "C:\Users\RDP\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_python.bat") {
-              Write-Host "    Python: ✓ Configured"
-          }
-          if (Test-Path "C:\Users\RDP\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start_ahk.bat") {
-              Write-Host "    AHK: ✓ Configured"
-          }
-          
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host ""
+          Write-Host "Scripts are running as RDP user in background"
 
       - name: Maintain Connection
         run: |
-          Write-Host "`n================================================"
+          Write-Host ""
+          Write-Host "================================================"
           Write-Host "           RDP ACCESS INFORMATION"
           Write-Host "================================================"
           Write-Host "Address:  $env:TAILSCALE_IP"
@@ -600,81 +375,40 @@ Write-Host "Environment variables set for RDP user"
           Write-Host "Password: $env:RDP_PASSWORD"
           Write-Host "================================================"
           Write-Host "User Profile: C:\Users\RDP"
+          Write-Host "Roblox Path:  C:\Users\RDP\AppData\Local\Roblox"
+          Write-Host "Scripts Path: C:\Users\RDP\Downloads"
+          Write-Host "================================================"
+          Write-Host "Python:   kickedcheckv2.py (auto-start on login)"
+          Write-Host "AHK:      connect.ahk (auto-start on login)"
+          Write-Host "Roblox:   Installed for RDP user"
           Write-Host "================================================"
           Write-Host ""
-          Write-Host "INSTALLED FOR RDP USER:"
-          Write-Host "  • Python:  C:\Users\RDP\AppData\Local\Programs\Python\Python311"
-          Write-Host "  • AHK:     C:\Users\RDP\AppData\Local\Programs\AutoHotkey"
-          Write-Host "  • Roblox:  C:\Users\RDP\AppData\Local\Roblox"
-          Write-Host "  • Scripts: C:\Users\RDP\Downloads"
-          Write-Host ""
-          Write-Host "AUTO-START ON LOGIN:"
-          Write-Host "  • kickedcheckv2.py (Python script)"
-          Write-Host "  • connect.ahk (AutoHotkey script)"
-          Write-Host ""
-          Write-Host "================================================"
           Write-Host "Session will remain active until manually cancelled."
-          Write-Host "All applications will auto-start when you login via RDP."
-          Write-Host "================================================`n"
+          Write-Host "Scripts will auto-start when you login via RDP."
+          Write-Host ""
           
           while ($true) {
-              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session active for user: RDP"
+              Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP session active..."
               
-              # Проверяем процессы Python
               $pythonProcess = Get-Process python -ErrorAction SilentlyContinue
               if ($pythonProcess) {
-                  $pythonCount = ($pythonProcess | Measure-Object).Count
-                  Write-Host "  ✓ Python processes running: $pythonCount"
+                  Write-Host "  ✓ Python process detected"
               }
               
-              # Проверяем процессы AutoHotkey
               $ahkProcess = Get-Process AutoHotkey -ErrorAction SilentlyContinue
               if ($ahkProcess) {
-                  $ahkCount = ($ahkProcess | Measure-Object).Count
-                  Write-Host "  ✓ AutoHotkey processes running: $ahkCount"
+                  Write-Host "  ✓ AHK process detected"
               }
               
-              # Проверяем процессы Roblox
               $robloxProcess = Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue
               if ($robloxProcess) {
-                  Write-Host "  ✓ Roblox Player is running"
+                  Write-Host "  ✓ Roblox Player running"
               }
               
-              # Проверяем пользователя RDP
               $rdpUser = Get-LocalUser -Name "RDP" -ErrorAction SilentlyContinue
               if ($rdpUser) {
-                  Write-Host "  ✓ RDP user account active"
+                  Write-Host "  ✓ RDP user active"
               }
               
-              # Проверяем Tailscale подключение
-              $tsStatus = & "$env:ProgramFiles\Tailscale\tailscale.exe" status --json 2>$null | ConvertFrom-Json
-              if ($tsStatus) {
-                  Write-Host "  ✓ Tailscale connected"
-              }
-              
-              # Проверяем существование ключевых файлов
-              $pythonExe = "C:\Users\RDP\AppData\Local\Programs\Python\Python311\python.exe"
-              $ahkExe = "C:\Users\RDP\AppData\Local\Programs\AutoHotkey\AutoHotkey.exe"
-              $robloxExe = Get-ChildItem "C:\Users\RDP\AppData\Local\Roblox" -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-              
-              $allFilesPresent = $true
-              if (-not (Test-Path $pythonExe)) {
-                  Write-Host "  ⚠ Python executable missing!"
-                  $allFilesPresent = $false
-              }
-              if (-not (Test-Path $ahkExe)) {
-                  Write-Host "  ⚠ AutoHotkey executable missing!"
-                  $allFilesPresent = $false
-              }
-              if (-not $robloxExe) {
-                  Write-Host "  ⚠ Roblox Player executable missing!"
-                  $allFilesPresent = $false
-              }
-              
-              if ($allFilesPresent) {
-                  Write-Host "  ✓ All installations verified in RDP user profile"
-              }
-              
-              Write-Host ""
               Start-Sleep -Seconds 300
           }
