@@ -156,69 +156,104 @@ jobs:
           Write-Host "Downloading Roblox Player from GitHub Release..."
           
           $token = "${{ secrets.GH_PAT }}"
+          $repo = "brainburn33/repo"
           $releaseTag = "ver"
           $fileName = "version-4aeb17bd13994560.zip"
-          $downloadUrl = "https://github.com/brainburn33/repo/releases/download/$releaseTag/$fileName"
           
-          $headers = @{
-              Authorization = "Bearer $token"
-          }
-          
-          # Путь для RDP пользователя
           $rdpLocalAppData = "C:\Users\RDP\AppData\Local"
           $robloxZipPath = "$env:TEMP\version-4aeb17bd13994560.zip"
           
-          Write-Host "Downloading from: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -Headers $headers -OutFile $robloxZipPath -UseBasicParsing
-          
-          if (Test-Path $robloxZipPath) {
-              $zipSize = (Get-Item $robloxZipPath).Length / 1MB
-              Write-Host "✓ Downloaded Roblox Player: $([math]::Round($zipSize, 2)) MB"
-              
-              # Создаем директорию Roblox для пользователя RDP
-              $robloxInstallPath = "$rdpLocalAppData\Roblox\Versions"
-              if (-not (Test-Path $robloxInstallPath)) {
-                  New-Item -ItemType Directory -Path $robloxInstallPath -Force | Out-Null
+          try {
+              # Получаем информацию о релизе через API
+              Write-Host "Fetching release info..."
+              $apiHeaders = @{
+                  Authorization = "Bearer $token"
+                  Accept = "application/vnd.github+json"
               }
               
-              Write-Host "Extracting Roblox to: $robloxInstallPath"
-              Expand-Archive -Path $robloxZipPath -DestinationPath $robloxInstallPath -Force
-              Remove-Item $robloxZipPath -Force
+              $releaseUrl = "https://api.github.com/repos/$repo/releases/tags/$releaseTag"
+              $release = Invoke-RestMethod -Uri $releaseUrl -Headers $apiHeaders -Method Get
               
-              # Ищем RobloxPlayerBeta.exe
-              $playerExe = Get-ChildItem -Path $robloxInstallPath -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+              # Находим нужный asset
+              $asset = $release.assets | Where-Object { $_.name -eq $fileName }
               
-              if ($playerExe) {
-                  Write-Host "✓ Roblox Player installed at: $($playerExe.FullName)"
+              if (-not $asset) {
+                  Write-Error "Asset '$fileName' not found in release '$releaseTag'"
+                  Write-Host "Available assets in this release:"
+                  $release.assets | ForEach-Object { Write-Host "  - $($_.name)" }
+                  exit 1
+              }
+              
+              Write-Host "Found asset: $($asset.name) (ID: $($asset.id))"
+              Write-Host "Downloading from: $($asset.url)"
+              
+              # Скачиваем asset через API
+              $downloadHeaders = @{
+                  Authorization = "Bearer $token"
+                  Accept = "application/octet-stream"
+              }
+              
+              Invoke-WebRequest -Uri $asset.url -Headers $downloadHeaders -OutFile $robloxZipPath -UseBasicParsing
+              
+              if (Test-Path $robloxZipPath) {
+                  $zipSize = (Get-Item $robloxZipPath).Length / 1MB
+                  Write-Host "✓ Downloaded Roblox Player: $([math]::Round($zipSize, 2)) MB"
                   
-                  # Создаем ярлык на рабочем столе RDP пользователя
-                  $rdpDesktop = "C:\Users\RDP\Desktop"
-                  if (-not (Test-Path $rdpDesktop)) {
-                      New-Item -ItemType Directory -Path $rdpDesktop -Force | Out-Null
+                  # Создаем директорию Roblox для пользователя RDP
+                  $robloxInstallPath = "$rdpLocalAppData\Roblox\Versions"
+                  if (-not (Test-Path $robloxInstallPath)) {
+                      New-Item -ItemType Directory -Path $robloxInstallPath -Force | Out-Null
                   }
                   
-                  $shortcutPath = "$rdpDesktop\Roblox Player.lnk"
-                  $WScriptShell = New-Object -ComObject WScript.Shell
-                  $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
-                  $shortcut.TargetPath = $playerExe.FullName
-                  $shortcut.Save()
-                  Write-Host "✓ Desktop shortcut created for RDP user"
+                  Write-Host "Extracting Roblox to: $robloxInstallPath"
+                  Expand-Archive -Path $robloxZipPath -DestinationPath $robloxInstallPath -Force
+                  Remove-Item $robloxZipPath -Force
                   
-                  # Устанавливаем права для RDP пользователя
-                  $robloxBasePath = "$rdpLocalAppData\Roblox"
-                  $acl = Get-Acl $robloxBasePath
-                  $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
-                  $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
-                  $acl.SetAccessRule($accessRule)
-                  Set-Acl $robloxBasePath $acl
+                  # Ищем RobloxPlayerBeta.exe
+                  $playerExe = Get-ChildItem -Path $robloxInstallPath -Recurse -Filter "RobloxPlayerBeta.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                  
+                  if ($playerExe) {
+                      Write-Host "✓ Roblox Player installed at: $($playerExe.FullName)"
+                      
+                      # Создаем ярлык на рабочем столе RDP пользователя
+                      $rdpDesktop = "C:\Users\RDP\Desktop"
+                      if (-not (Test-Path $rdpDesktop)) {
+                          New-Item -ItemType Directory -Path $rdpDesktop -Force | Out-Null
+                      }
+                      
+                      $shortcutPath = "$rdpDesktop\Roblox Player.lnk"
+                      $WScriptShell = New-Object -ComObject WScript.Shell
+                      $shortcut = $WScriptShell.CreateShortcut($shortcutPath)
+                      $shortcut.TargetPath = $playerExe.FullName
+                      $shortcut.Save()
+                      Write-Host "✓ Desktop shortcut created for RDP user"
+                      
+                      # Устанавливаем права для RDP пользователя
+                      $robloxBasePath = "$rdpLocalAppData\Roblox"
+                      $acl = Get-Acl $robloxBasePath
+                      $permission = "RDP","FullControl","ContainerInherit,ObjectInherit","None","Allow"
+                      $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule $permission
+                      $acl.SetAccessRule($accessRule)
+                      Set-Acl $robloxBasePath $acl
+                      
+                      Write-Host "✓ Roblox Player installation completed successfully"
+                  } else {
+                      Write-Host "⚠ RobloxPlayerBeta.exe not found"
+                      Write-Host "Contents of $robloxInstallPath :"
+                      Get-ChildItem $robloxInstallPath -Recurse | Select-Object -First 10 | ForEach-Object {
+                          Write-Host "  - $($_.FullName)"
+                      }
+                  }
               } else {
-                  Write-Host "⚠ RobloxPlayerBeta.exe not found"
-                  Get-ChildItem $robloxInstallPath -Recurse | Select-Object -First 10 | ForEach-Object {
-                      Write-Host "  - $($_.FullName)"
-                  }
+                  Write-Error "Failed to download file"
+                  exit 1
               }
-          } else {
-              Write-Error "Failed to download Roblox Player"
+              
+          } catch {
+              Write-Error "Error: $($_.Exception.Message)"
+              if ($_.Exception.Response) {
+                  Write-Host "Status Code: $($_.Exception.Response.StatusCode.value__)"
+              }
               exit 1
           }
 
