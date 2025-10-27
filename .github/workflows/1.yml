@@ -157,7 +157,7 @@ jobs:
           
           $token = "${{ secrets.GH_PAT }}"
           $releaseTag = "ver"
-          $fileName = "version-7a4a5d7d1fb3449f.zip"
+          $fileName = "version-4aeb17bd13994560.zip"
           $downloadUrl = "https://github.com/brainburn33/repo/releases/download/$releaseTag/$fileName"
           
           $headers = @{
@@ -166,7 +166,7 @@ jobs:
           
           # Путь для RDP пользователя
           $rdpLocalAppData = "C:\Users\RDP\AppData\Local"
-          $robloxZipPath = "$env:TEMP\version-7a4a5d7d1fb3449f.zip"
+          $robloxZipPath = "$env:TEMP\version-4aeb17bd13994560.zip"
           
           Write-Host "Downloading from: $downloadUrl"
           Invoke-WebRequest -Uri $downloadUrl -Headers $headers -OutFile $robloxZipPath -UseBasicParsing
